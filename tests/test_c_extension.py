@@ -27,7 +27,7 @@ class TestCExtensionIntegration:
 
         # Should succeed with exact float data (no warning needed)
         dmm.fit(data_float_exact)
-        assert dmm.result_ is not None
+        assert dmm.result is not None
 
         # Should give warning with non-exact float data
         with pytest.warns(UserWarning, match="non-integer"):
@@ -36,12 +36,12 @@ class TestCExtensionIntegration:
 
         # Should succeed with int32 data
         dmm.fit(data_int32)
-        assert dmm.result_ is not None
+        assert dmm.result is not None
 
         # Should succeed with int64 data (converted internally)
         dmm2 = DirichletMixture(n_components=2, verbose=False)
         dmm2.fit(data_int64)
-        assert dmm2.result_ is not None
+        assert dmm2.result is not None
 
     def test_data_layout_handling(self):
         """Test that the data layout conversion is handled correctly"""
@@ -58,7 +58,7 @@ class TestCExtensionIntegration:
         dmm.fit(data)
 
         # Should achieve perfect or near-perfect clustering
-        predicted = dmm.result_.get_best_component()
+        predicted = dmm.result.get_best_component()
 
         # Check that samples with same pattern get same label
         # Note: The algorithm might assign labels arbitrarily, so we check clustering quality instead
@@ -92,7 +92,7 @@ class TestCExtensionIntegration:
         for i in range(5):
             dmm = DirichletMixture(n_components=2, verbose=False, random_state=i)
             dmm.fit(data)
-            assert dmm.result_ is not None
+            assert dmm.result is not None
 
             # Explicitly delete to test cleanup
             del dmm
@@ -103,13 +103,13 @@ class TestCExtensionIntegration:
         min_data = np.array([[1, 1]], dtype=np.int32)
         dmm = DirichletMixture(n_components=1, verbose=False)
         dmm.fit(min_data)
-        assert dmm.result_ is not None
+        assert dmm.result is not None
 
         # Test with zeros in data
         zero_data = np.array([[10, 0], [0, 10]], dtype=np.int32)
         dmm2 = DirichletMixture(n_components=2, verbose=False)
         dmm2.fit(zero_data)
-        assert dmm2.result_ is not None
+        assert dmm2.result is not None
 
     def test_array_contiguity(self):
         """Test that non-contiguous arrays are handled correctly"""
@@ -121,7 +121,7 @@ class TestCExtensionIntegration:
 
         dmm = DirichletMixture(n_components=2, verbose=False)
         dmm.fit(non_contiguous)  # Should handle non-contiguous arrays
-        assert dmm.result_ is not None
+        assert dmm.result is not None
 
     def test_random_seed_consistency(self):
         """Test that C extension random seed produces consistent results"""
@@ -140,8 +140,8 @@ class TestCExtensionIntegration:
         dmm2.fit(data)
 
         np.testing.assert_allclose(
-            dmm1.result_.group_assignments,
-            dmm2.result_.group_assignments,
+            dmm1.result.group_assignments,
+            dmm2.result.group_assignments,
             rtol=1e-10
         )
 

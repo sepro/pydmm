@@ -58,7 +58,7 @@ class TestDirichletMixture:
         assert dmm.n_components == 2
         assert dmm.verbose == False
         assert dmm.random_state == 42
-        assert dmm.result_ is None
+        assert dmm.result is None
 
     def test_initialization_invalid_params(self):
         """Test initialization with invalid parameters"""
@@ -75,25 +75,25 @@ class TestDirichletMixture:
         dmm = DirichletMixture(n_components=2, verbose=False, random_state=42)
         dmm.fit(self.data_array)
 
-        assert dmm.result_ is not None
-        assert hasattr(dmm.result_, 'goodness_of_fit')
-        assert hasattr(dmm.result_, 'group_assignments')
-        assert hasattr(dmm.result_, 'mixture_weights')
+        assert dmm.result is not None
+        assert hasattr(dmm.result, 'goodness_of_fit')
+        assert hasattr(dmm.result, 'group_assignments')
+        assert hasattr(dmm.result, 'mixture_weights')
 
         # Check dimensions
-        assert dmm.result_.group_assignments.shape == (self.n_samples, 2)
-        assert len(dmm.result_.mixture_weights) == 2
+        assert dmm.result.group_assignments.shape == (self.n_samples, 2)
+        assert len(dmm.result.mixture_weights) == 2
 
     def test_fit_with_pandas_dataframe(self):
         """Test fitting with pandas DataFrame input"""
         dmm = DirichletMixture(n_components=2, verbose=False, random_state=42)
         dmm.fit(self.data_df)
 
-        assert dmm.result_ is not None
-        assert dmm.result_.sample_names is not None
-        assert dmm.result_.feature_names is not None
-        assert len(dmm.result_.sample_names) == self.n_samples
-        assert len(dmm.result_.feature_names) == self.n_features
+        assert dmm.result is not None
+        assert dmm.result.sample_names is not None
+        assert dmm.result.feature_names is not None
+        assert len(dmm.result.sample_names) == self.n_samples
+        assert len(dmm.result.feature_names) == self.n_features
 
     def test_fit_invalid_input(self):
         """Test fitting with invalid input data"""
@@ -138,7 +138,7 @@ class TestDirichletMixture:
         dmm = DirichletMixture(n_components=2, verbose=False, random_state=42)
         dmm.fit(self.data_array)
 
-        gof = dmm.result_.goodness_of_fit
+        gof = dmm.result.goodness_of_fit
 
         required_metrics = ['NLE', 'LogDet', 'Laplace', 'BIC', 'AIC']
         for metric in required_metrics:
@@ -151,7 +151,7 @@ class TestDirichletMixture:
         dmm = DirichletMixture(n_components=2, verbose=False, random_state=42)
         dmm.fit(self.data_array)
 
-        predicted_labels = dmm.result_.get_best_component()
+        predicted_labels = dmm.result.get_best_component()
 
         # Calculate clustering accuracy (with optimal assignment)
         accuracy_original = np.mean(predicted_labels == self.true_labels)
@@ -167,9 +167,9 @@ class TestDirichletMixture:
             dmm = DirichletMixture(n_components=n_components, verbose=False, random_state=42)
             dmm.fit(self.data_array)
 
-            assert dmm.result_ is not None
-            assert len(dmm.result_.mixture_weights) == n_components
-            assert dmm.result_.group_assignments.shape == (self.n_samples, n_components)
+            assert dmm.result is not None
+            assert len(dmm.result.mixture_weights) == n_components
+            assert dmm.result.group_assignments.shape == (self.n_samples, n_components)
 
     def test_result_dataframe_methods(self):
         """Test DirichletMixtureResult DataFrame accessor methods"""
@@ -177,13 +177,13 @@ class TestDirichletMixture:
         dmm.fit(self.data_df)  # Use DataFrame to preserve names
 
         # Test group assignments DataFrame
-        group_df = dmm.result_.get_group_assignments_df()
+        group_df = dmm.result.get_group_assignments_df()
         assert isinstance(group_df, pd.DataFrame)
         assert group_df.shape == (self.n_samples, 2)
         assert list(group_df.index) == list(self.data_df.index)
 
         # Test parameter estimates DataFrame
-        param_dict = dmm.result_.get_parameter_estimates_df()
+        param_dict = dmm.result.get_parameter_estimates_df()
         assert isinstance(param_dict, dict)
         assert "Estimate" in param_dict
         param_df = param_dict["Estimate"]
@@ -196,7 +196,7 @@ class TestDirichletMixture:
         dmm = DirichletMixture(n_components=2, verbose=False, random_state=42)
         dmm.fit(self.data_array)
 
-        summary = dmm.result_.summary()
+        summary = dmm.result.summary()
 
         required_keys = ['n_samples', 'n_features', 'n_components', 'mixture_weights', 'goodness_of_fit']
         for key in required_keys:
@@ -212,13 +212,13 @@ class TestDirichletMixture:
 
         # Results should be identical
         np.testing.assert_allclose(
-            dmm1.result_.group_assignments,
-            dmm2.result_.group_assignments,
+            dmm1.result.group_assignments,
+            dmm2.result.group_assignments,
             rtol=1e-10
         )
         np.testing.assert_allclose(
-            dmm1.result_.mixture_weights,
-            dmm2.result_.mixture_weights,
+            dmm1.result.mixture_weights,
+            dmm2.result.mixture_weights,
             rtol=1e-10
         )
 
@@ -233,7 +233,7 @@ class TestDirichletMixtureResult:
 
         dmm = DirichletMixture(n_components=2, verbose=False, random_state=42)
         dmm.fit(data)
-        self.result = dmm.result_
+        self.result = dmm.result
 
     def test_get_best_component(self):
         """Test get_best_component method"""

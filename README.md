@@ -59,16 +59,16 @@ dmm = DirichletMixture(n_components=2, random_state=42)
 dmm.fit(data)
 
 # Get cluster assignments
-predicted_labels = dmm.result_.get_best_component()
+predicted_labels = dmm.result.get_best_component()
 print("Cluster assignments:", predicted_labels)
 
 # Get assignment probabilities
-probabilities = dmm.result_.get_group_assignments_df()
+probabilities = dmm.result.get_group_assignments_df()
 print("Assignment probabilities:")
 print(probabilities)
 
 # Model summary
-summary = dmm.result_.summary()
+summary = dmm.result.summary()
 print(f"BIC: {summary['goodness_of_fit']['BIC']:.1f}")
 print(f"AIC: {summary['goodness_of_fit']['AIC']:.1f}")
 ```
@@ -85,7 +85,7 @@ bic_scores = []
 for k in cluster_options:
     dmm = DirichletMixture(n_components=k, random_state=42)
     dmm.fit(data)
-    bic = dmm.result_.goodness_of_fit['BIC']
+    bic = dmm.result.goodness_of_fit['BIC']
     bic_scores.append(bic)
     print(f"{k} clusters: BIC = {bic:.1f}")
 
@@ -109,11 +109,11 @@ dmm = DirichletMixture(n_components=2, random_state=42)
 dmm.fit(samples_df)
 
 # Results preserve sample/feature names
-assignments_df = dmm.result_.get_group_assignments_df()
+assignments_df = dmm.result.get_group_assignments_df()
 print(assignments_df)
 
 # Parameter estimates with feature names
-param_estimates = dmm.result_.get_parameter_estimates_df()
+param_estimates = dmm.result.get_parameter_estimates_df()
 print(param_estimates['Estimate'])
 ```
 

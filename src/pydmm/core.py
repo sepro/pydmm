@@ -207,7 +207,7 @@ class DirichletMixture:
 
         # For now, we need to refit - this could be optimized in the future
         self.fit(X)
-        return self.result_.group_assignments
+        return self.result.group_assignments
 
     def score(self, X: Union[np.ndarray, pd.DataFrame]) -> float:
         """
@@ -222,4 +222,8 @@ class DirichletMixture:
         if not self.is_fitted:
             self.fit(X)
 
-        return -self.result_.goodness_of_fit["NLE"]  # Return negative NLE
+        return -self.result.goodness_of_fit["NLE"]  # Return negative NLE
+
+    @property
+    def result(self):
+        return self.result_
