@@ -49,6 +49,16 @@ setup(
         'numpy>=1.19.0',
         'pandas>=1.0.0',
     ],
+    extras_require={
+        'dev': [
+            'pytest>=6.0',
+            'pytest-cov>=2.10',
+        ],
+        'test': [
+            'pytest>=6.0',
+            'pytest-cov>=2.10',
+        ]
+    },
     python_requires='>=3.7',
     classifiers=[
         'Development Status :: 3 - Alpha',
