@@ -133,6 +133,92 @@ class TestDirichletMixture:
         assert len(labels) == self.n_samples
         assert set(labels) <= {0, 1}  # Labels should be 0 or 1
 
+    def test_predict(self):
+        """Test predict method"""
+        dmm = DirichletMixture(n_components=2, verbose=False, random_state=42)
+        dmm.fit(self.data_array)
+
+        # Test basic functionality
+        labels = dmm.predict(self.data_array)
+        assert len(labels) == self.n_samples
+        assert set(labels) <= {0, 1}  # Labels should be 0 or 1
+
+        # Test with new data (subset of original)
+        new_data = self.data_array[:10]
+        new_labels = dmm.predict(new_data)
+        assert len(new_labels) == 10
+        assert set(new_labels) <= {0, 1}
+
+        # Test with pandas DataFrame
+        new_labels_df = dmm.predict(self.data_df[:10])
+        np.testing.assert_array_equal(new_labels, new_labels_df)
+
+    def test_predict_unfitted_model(self):
+        """Test predict method raises error for unfitted model"""
+        dmm = DirichletMixture(n_components=2, verbose=False, random_state=42)
+
+        with pytest.raises(ValueError, match="Model must be fitted"):
+            dmm.predict(self.data_array)
+
+    def test_predict_proba_unfitted_model(self):
+        """Test predict_proba method raises error for unfitted model"""
+        dmm = DirichletMixture(n_components=2, verbose=False, random_state=42)
+
+        with pytest.raises(ValueError, match="Model must be fitted"):
+            dmm.predict_proba(self.data_array)
+
+    def test_predict_consistency_with_predict_proba(self):
+        """Test that predict results are consistent with predict_proba"""
+        dmm = DirichletMixture(n_components=2, verbose=False, random_state=42)
+        dmm.fit(self.data_array)
+
+        # Test on training data
+        proba = dmm.predict_proba(self.data_array)
+        labels = dmm.predict(self.data_array)
+        expected_labels = np.argmax(proba, axis=1)
+        np.testing.assert_array_equal(labels, expected_labels)
+
+        # Test on new data
+        new_data = self.data_array[:20]
+        proba_new = dmm.predict_proba(new_data)
+        labels_new = dmm.predict(new_data)
+        expected_labels_new = np.argmax(proba_new, axis=1)
+        np.testing.assert_array_equal(labels_new, expected_labels_new)
+
+    def test_predict_with_optional_y_parameter(self):
+        """Test predict method accepts optional y parameter for API consistency"""
+        dmm = DirichletMixture(n_components=2, verbose=False, random_state=42)
+        dmm.fit(self.data_array)
+
+        # Should work with y=None (default)
+        labels1 = dmm.predict(self.data_array)
+
+        # Should work with y parameter provided (ignored)
+        dummy_y = np.zeros(self.n_samples)
+        labels2 = dmm.predict(self.data_array, y=dummy_y)
+
+        # Results should be identical
+        np.testing.assert_array_equal(labels1, labels2)
+
+    def test_predict_proba_improved_efficiency(self):
+        """Test that predict_proba doesn't refit the model"""
+        dmm = DirichletMixture(n_components=2, verbose=False, random_state=42)
+        dmm.fit(self.data_array)
+
+        # Store original result
+        original_result = dmm.result_
+
+        # Call predict_proba - should not change the fitted result
+        proba = dmm.predict_proba(self.data_array[:10])
+
+        # Result should be the same object (no refitting)
+        assert dmm.result_ is original_result
+
+        # Probabilities should still be valid
+        assert proba.shape == (10, 2)
+        np.testing.assert_allclose(proba.sum(axis=1), 1.0, rtol=1e-10)
+        assert np.all(proba >= 0)
+
     def test_goodness_of_fit_metrics(self):
         """Test that goodness of fit metrics are computed"""
         dmm = DirichletMixture(n_components=2, verbose=False, random_state=42)

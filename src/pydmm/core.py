@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 from typing import Union, Dict, Any, Optional
 import warnings
+from scipy.special import gammaln
 
 try:
     from . import pydmm_core
@@ -73,8 +74,8 @@ class DirichletMixtureResult:
             "n_components": self.n_components,
             "mixture_weights": self.mixture_weights,
             "goodness_of_fit": self.goodness_of_fit,
-            "best_model_by_BIC": self.goodness_of_fit["BIC"],
-            "best_model_by_AIC": self.goodness_of_fit["AIC"]
+            "BIC": self.goodness_of_fit["BIC"],
+            "AIC": self.goodness_of_fit["AIC"]
         }
 
 
@@ -138,6 +139,33 @@ class DirichletMixture:
 
         return X_array, sample_names, feature_names
 
+    def _compute_dirichlet_log_likelihood(self, X: np.ndarray, alpha: np.ndarray) -> np.ndarray:
+        """
+        Compute log-likelihood of samples under Dirichlet distribution.
+
+        Parameters:
+            X (np.ndarray): Count data of shape (n_samples, n_features)
+            alpha (np.ndarray): Dirichlet parameters of shape (n_features,)
+
+        Returns:
+            np.ndarray: Log-likelihood for each sample of shape (n_samples,)
+        """
+        # Convert counts to proportions, adding small pseudocount to avoid log(0)
+        pseudocount = 1e-10
+        proportions = X + pseudocount
+        proportions = proportions / proportions.sum(axis=1, keepdims=True)
+
+        # Compute log-likelihood: log(B(alpha)) + sum((alpha_i - 1) * log(x_i))
+        # where B(alpha) is the multivariate beta function
+
+        # Log of multivariate beta function: sum(gammaln(alpha_i)) - gammaln(sum(alpha_i))
+        log_beta = np.sum(gammaln(alpha)) - gammaln(np.sum(alpha))
+
+        # For each sample: sum((alpha_i - 1) * log(x_i))
+        log_likelihood_terms = np.sum((alpha - 1) * np.log(proportions), axis=1)
+
+        return log_likelihood_terms - log_beta
+
     def fit(self, X: Union[np.ndarray, pd.DataFrame]) -> 'DirichletMixture':
         """
         Fit the Dirichlet mixture model to the data.
@@ -193,9 +221,6 @@ class DirichletMixture:
         """
         Predict component probabilities for new data.
 
-        Note: This method currently requires refitting the model as the C
-        implementation does not separate training from prediction.
-
         Parameters:
             X (array-like): Input count data of shape (n_samples, n_features)
 
@@ -205,9 +230,49 @@ class DirichletMixture:
         if not self.is_fitted:
             raise ValueError("Model must be fitted before making predictions")
 
-        # For now, we need to refit - this could be optimized in the future
-        self.fit(X)
-        return self.result.group_assignments
+        X_array, _, _ = self._validate_input(X)
+        X_array = np.ascontiguousarray(X_array)
+
+        # Get fitted parameters
+        alpha_estimates = self.result_.parameter_estimates["Estimate"]  # shape: (n_features, n_components)
+        mixture_weights = self.result_.mixture_weights  # shape: (n_components,)
+
+        n_samples = X_array.shape[0]
+        n_components = self.n_components
+
+        # Compute log-likelihood for each component
+        log_responsibilities = np.zeros((n_samples, n_components))
+
+        for k in range(n_components):
+            alpha_k = alpha_estimates[:, k]  # Parameters for component k
+            log_likelihood_k = self._compute_dirichlet_log_likelihood(X_array, alpha_k)
+            log_responsibilities[:, k] = log_likelihood_k + np.log(mixture_weights[k])
+
+        # Normalize to get probabilities (subtract max for numerical stability)
+        max_log_resp = np.max(log_responsibilities, axis=1, keepdims=True)
+        log_responsibilities -= max_log_resp
+        responsibilities = np.exp(log_responsibilities)
+        responsibilities /= np.sum(responsibilities, axis=1, keepdims=True)
+
+        return responsibilities
+
+    def predict(self, X: Union[np.ndarray, pd.DataFrame], y=None) -> np.ndarray:
+        """
+        Predict the most likely component for each sample.
+
+        Parameters:
+            X (array-like): Input count data of shape (n_samples, n_features)
+            y (ignored): Not used, present here for API consistency by convention
+
+        Returns:
+            np.ndarray: Predicted component labels for each sample
+        """
+        if not self.is_fitted:
+            raise ValueError("Model must be fitted before making predictions")
+
+        # Get probabilities and return the most likely component
+        probabilities = self.predict_proba(X)
+        return np.argmax(probabilities, axis=1)
 
     def score(self, X: Union[np.ndarray, pd.DataFrame]) -> float:
         """
