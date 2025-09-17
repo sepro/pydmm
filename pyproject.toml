@@ -11,7 +11,7 @@ name = "pydmm"
 version = "0.1.0"
 description = "Python wrapper for Dirichlet Mixture Model fitting"
 readme = "README.md"
-license = {text = "MIT"}
+license = {text = "LGPL-3.0-or-later"}
 authors = [{name = "Your Name", email = "your.email@example.com"}]
 requires-python = ">=3.7"
 dependencies = [
@@ -21,7 +21,7 @@ dependencies = [
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: GNU Lesser General Public License v3 or later (LGPLv3+)",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.7",
     "Programming Language :: Python :: 3.8",

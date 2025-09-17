@@ -58,8 +58,10 @@ data = np.array([
 dmm = DirichletMixture(n_components=2, random_state=42)
 dmm.fit(data)
 
-# Get cluster assignments
-predicted_labels = dmm.result.get_best_component()
+# Get cluster assignments (two equivalent methods)
+predicted_labels = dmm.result.get_best_component()  # From fitted model
+# OR
+predicted_labels = dmm.predict(data)  # Using predict method
 print("Cluster assignments:", predicted_labels)
 
 # Get assignment probabilities
@@ -117,6 +119,31 @@ param_estimates = dmm.result.get_parameter_estimates_df()
 print(param_estimates['Estimate'])
 ```
 
+## Predicting New Data
+
+After fitting a model, you can predict cluster assignments for new samples:
+
+```python
+# Fit model on training data
+dmm = DirichletMixture(n_components=2, random_state=42)
+dmm.fit(training_data)
+
+# Predict cluster assignments for new data
+new_data = np.array([
+    [120, 60, 30, 15],  # New sample 1
+    [8,   25, 90, 50],  # New sample 2
+], dtype=np.int32)
+
+# Get hard cluster assignments
+new_labels = dmm.predict(new_data)
+print("New sample cluster assignments:", new_labels)
+
+# Get soft cluster assignments (probabilities)
+new_probabilities = dmm.predict_proba(new_data)
+print("New sample probabilities:")
+print(new_probabilities)
+```
+
 ## API Reference
 
 ### DirichletMixture
@@ -128,7 +155,8 @@ print(param_estimates['Estimate'])
 
 **Methods:**
 - `fit(X)`: Fit the model to data X
-- `predict_proba(X)`: Get cluster assignment probabilities
+- `predict(X)`: Predict the most likely cluster for each sample
+- `predict_proba(X)`: Get cluster assignment probabilities for each sample
 - `fit_predict(X)`: Fit model and return cluster assignments
 
 ### DirichletMixtureResult
@@ -147,81 +175,20 @@ print(param_estimates['Estimate'])
 
 ## Examples
 
-See the included example files:
+See the included example files in `docs/examples/`:
 
-- `example_reference_counts.py`: Complete workflow with model selection and evaluation
+- `reference_counts.py`: Complete workflow with model selection and evaluation
+- `probability_comparison.py`: Compare probability computations between C and Python implementations
+- `classification_comparison.py`: Compare classification decisions between C and Python implementations
 
 Run an example:
 ```bash
-python example_reference_counts.py
+python docs/examples/reference_counts.py
 ```
 
-## For Developers
+## Developer Documentation
 
-### Running Tests
-
-The package includes a comprehensive test suite with 91% code coverage:
-
-```bash
-# Install test dependencies
-pip install -e ".[dev]"
-
-# Run all tests
-pytest
-
-# Run with verbose output
-pytest -v
-
-# Run with coverage report
-pytest --cov=pydmm --cov-report=term-missing
-
-# Run specific test file
-pytest tests/test_core.py
-
-# Run specific test
-pytest tests/test_core.py::TestDirichletMixture::test_clustering_performance
-```
-
-### Development Setup
-
-```bash
-# Clone repository
-git clone <repository-url>
-cd pyDMM
-
-# Create virtual environment
-python3 -m venv venv
-source venv/bin/activate
-
-# Install in development mode with test dependencies
-pip install -e ".[dev]"
-
-# Install GSL (if not already installed)
-sudo apt-get install libgsl-dev  # Ubuntu/Debian
-
-# Run tests to verify installation
-pytest
-```
-
-### Modifying C Code
-
-After making changes to the C extension:
-
-```bash
-# Reinstall to recompile the C extension
-pip install -e .
-
-# Run tests to ensure changes work correctly
-pytest tests/test_c_extension.py
-```
-
-### Code Architecture
-
-- **`src/pydmm/core.py`**: Main Python interface and result handling
-- **`src/pydmm/wrapper.c`**: NumPy C API wrapper with data layout conversion
-- **`src/pydmm/dirichlet_fit_standalone.c`**: Core C implementation with GSL
-- **`setup.py`**: Build configuration for C extension
-- **`tests/`**: Comprehensive test suite
+For developers who want to contribute to pyDMM, modify its functionality, or understand the codebase architecture, see the [Developer Documentation](docs/dev.md).
 
 ## Requirements
 
@@ -232,7 +199,9 @@ pytest tests/test_c_extension.py
 
 ## License
 
-MIT License
+GNU Lesser General Public License v3.0 (LGPL v3)
+
+This package is licensed under the LGPL v3 license to maintain compatibility with the underlying C code components that are also under LGPL license.
 
 ## Citation
 
