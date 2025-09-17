@@ -4,6 +4,7 @@
 #include <gsl/gsl_linalg.h>
 #include <gsl/gsl_multimin.h>
 #include <gsl/gsl_permutation.h>
+#include <math.h>
 
 #include "dirichlet_fit_standalone.h"
 /* re-map to R transient memory allocation */
@@ -29,7 +30,7 @@ static void kmeans(struct data_t *data, gsl_rng *ptGSLRNG,
     double dMaxChange = BIG_DBL;
 
     if (data->verbose)
-        Rprintf("  Soft kmeans\n");
+        printf("  Soft kmeans\n");
 
     aadY = (double *) calloc(N * S, sizeof(double));
 
@@ -94,7 +95,7 @@ static void kmeans(struct data_t *data, gsl_rng *ptGSLRNG,
         }
         iter++;
         if (data->verbose && (iter % 10 == 0))
-            Rprintf("    iteration %d change %f\n", iter, dMaxChange);
+            printf("    iteration %d change %f\n", iter, dMaxChange);
     }
 
     free(aadY);
@@ -450,7 +451,7 @@ static void mixture_output(struct data_t *data, double *adW,
             } else bIll = TRUE;
 
             if (bIll)
-                dL = dU = R_NaN;
+                dL = dU = NAN;
             data->fit_lower[k * S + i] = dL;
             data->fit_mpe[k * S + i] = exp(aadLambda[k][i]);
             data->fit_upper[k * S + i] = dU;
@@ -497,7 +498,7 @@ void dirichlet_fit_main(struct data_t *data, int rseed)
     }
 
     if (data->verbose)
-        Rprintf("  Expectation Maximization setup\n");
+        printf("  Expectation Maximization setup\n");
     for (k = 0; k < K; k++) {
         for (j = 0; j < S; j++) {
             const double x = aadLambda[k][j];
@@ -511,7 +512,7 @@ void dirichlet_fit_main(struct data_t *data, int rseed)
     double dNLL = 0.0, dNew, dChange = BIG_DBL;
 
     if (data->verbose)
-        Rprintf("  Expectation Maximization\n");
+        printf("  Expectation Maximization\n");
     while (dChange > 1.0e-6 && iter < 100) {
         calc_z(aadZ, data, adW, aadLambda); /* latent var expectation */
         for (k = 0; k < K; k++) /* mixture components, given pi */
@@ -526,14 +527,14 @@ void dirichlet_fit_main(struct data_t *data, int rseed)
         dChange = fabs(dNLL - dNew);
         dNLL = dNew;
         iter++;
-        R_CheckUserInterrupt();
+        /* User interrupt check removed */
         if (data->verbose && (iter % 10) == 0)
-            Rprintf("    iteration %d change %f\n", iter, dChange);
+            printf("    iteration %d change %f\n", iter, dChange);
     }
 
     /* hessian */
     if (data->verbose)
-        Rprintf("  Hessian\n");
+        printf("  Hessian\n");
     gsl_matrix *ptHessian = gsl_matrix_alloc(S, S),
         *ptInverseHessian = gsl_matrix_alloc(S, S);
     gsl_permutation *p = gsl_permutation_alloc(S);
@@ -557,7 +558,7 @@ void dirichlet_fit_main(struct data_t *data, int rseed)
             free(aadZ[0]); free(aadZ);
             free(adW);
 
-            Rf_error("LU decompistion of a singular matrix during Hessian");
+            fprintf(stderr, "Error: LU decompistion of a singular matrix during Hessian\n"); exit(1);
         }
         gsl_linalg_LU_invert(ptHessian, p, ptInverseHessian);
         for (j = 0; j < S; j++) {

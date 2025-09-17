@@ -6,12 +6,11 @@
 #include <stdbool.h>
 
 // Define types that were from R
-typedef bool Rboolean;
 #define TRUE true
 #define FALSE false
 
 struct data_t {
-    Rboolean verbose;
+    bool verbose;
     int N, S, K;
     const int *aanX;
     double* adPi;
@@ -24,12 +23,5 @@ struct data_t {
 };
 
 void dirichlet_fit_main(struct data_t *data, int rseed);
-
-// Utility macros to replace R functions
-#define R_alloc(nelm, elsize) malloc((nelm) * (elsize))
-#define Rprintf printf
-#define Rf_error(msg) do { fprintf(stderr, "Error: %s\n", msg); exit(1); } while(0)
-#define R_CheckUserInterrupt() do {} while(0)
-#define R_NaN (0.0/0.0)
 
 #endif
