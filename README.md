@@ -5,7 +5,7 @@ pyDMM provides a Python interface to a C implementation of Dirichlet Mixture Mod
 ## Features
 
 - **High-performance C implementation** using GSL (GNU Scientific Library)
-- **Scikit-learn compatible API** with `fit()`, `predict_proba()`, and `fit_predict()` methods
+- **Scikit-learn compatible API** with `fit()`, `predict()`, `predict_proba()`, and `fit_predict()` methods
 - **Pandas DataFrame integration** with preserved sample and feature names
 - **Comprehensive model diagnostics** including BIC, AIC, and parameter estimates
 - **Automatic model selection** using information criteria
@@ -203,12 +203,36 @@ GNU Lesser General Public License v3.0 (LGPL v3)
 
 This package is licensed under the LGPL v3 license to maintain compatibility with the underlying C code components that are also under LGPL license.
 
+## Acknowledgments
+
+This package is based on the R package [DirichletMultinomial](https://github.com/mtmorgan/DirichletMultinomial) by Martin Morgan, which in turn implements methods from:
+
+> Holmes, I., Harris, K., & Quince, C. (2012). Dirichlet multinomial mixtures: generative models for microbial metagenomics. PLoS ONE, 7(2): e30126. https://doi.org/10.1371/journal.pone.0030126
+
+These sources have been instrumental in the development of pyDMM, providing both the theoretical foundation and reference implementation.
+
 ## Citation
 
 If you use pyDMM in your research, please cite:
 
 ```
 [Citation information to be added]
+```
+
+Additionally, please consider citing the original publication:
+
+```bibtex
+@article{holmes2012dirichlet,
+  title={Dirichlet multinomial mixtures: generative models for microbial metagenomics},
+  author={Holmes, Ian and Harris, Keith and Quince, Christopher},
+  journal={PLoS ONE},
+  volume={7},
+  number={2},
+  pages={e30126},
+  year={2012},
+  publisher={Public Library of Science},
+  doi={10.1371/journal.pone.0030126}
+}
 ```
 
 ## Contributing
