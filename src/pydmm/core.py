@@ -7,6 +7,7 @@ import pandas as pd
 from typing import Union, Dict, Any, Optional
 import warnings
 from scipy.special import gammaln
+from sklearn.base import BaseEstimator, ClassifierMixin
 
 try:
     from . import pydmm_core
@@ -79,7 +80,7 @@ class DirichletMixtureResult:
         }
 
 
-class DirichletMixture:
+class DirichletMixture(ClassifierMixin, BaseEstimator):
     """
     Dirichlet Mixture Model for compositional data analysis.
 
@@ -97,6 +98,7 @@ class DirichletMixture:
         random_state (int): Random seed
         is_fitted (bool): Whether the model has been fitted
         result_ (DirichletMixtureResult): Fitting results (available after fit)
+        classes_ (np.ndarray): Cluster labels (available after fit)
     """
 
     def __init__(self, n_components: int = 2, verbose: bool = False,
@@ -166,13 +168,14 @@ class DirichletMixture:
 
         return log_likelihood_terms - log_beta
 
-    def fit(self, X: Union[np.ndarray, pd.DataFrame]) -> 'DirichletMixture':
+    def fit(self, X: Union[np.ndarray, pd.DataFrame], y=None) -> 'DirichletMixture':
         """
         Fit the Dirichlet mixture model to the data.
 
         Parameters:
             X (array-like): Input count data of shape (n_samples, n_features)
                           Can be a pandas DataFrame or numpy array
+            y (ignored): Not used (clustering is unsupervised), present for sklearn compatibility
 
         Returns:
             self : DirichletMixture
@@ -202,6 +205,10 @@ class DirichletMixture:
         )
 
         self.is_fitted = True
+
+        # Set classes_ attribute for sklearn ClassifierMixin compatibility
+        self.classes_ = np.arange(self.n_components)
+
         return self
 
     def fit_predict(self, X: Union[np.ndarray, pd.DataFrame]) -> np.ndarray:
@@ -287,7 +294,7 @@ class DirichletMixture:
         if not self.is_fitted:
             self.fit(X)
 
-        return -self.result.goodness_of_fit["NLE"]  # Return negative NLE
+        return -self.result_.goodness_of_fit["NLE"]  # Return negative NLE
 
     @property
     def result(self):

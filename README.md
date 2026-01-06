@@ -5,7 +5,12 @@ pyDMM provides a Python interface to a C implementation of Dirichlet Mixture Mod
 ## Features
 
 - **High-performance C implementation** using GSL (GNU Scientific Library)
-- **Scikit-learn compatible API** with `fit()`, `predict()`, `predict_proba()`, and `fit_predict()` methods
+- **Full scikit-learn compatibility** with BaseEstimator and ClassifierMixin
+  - Works with GridSearchCV for hyperparameter tuning
+  - Compatible with cross_val_score for cross-validation
+  - Integrates with sklearn pipelines
+  - Supports get_params() and set_params() for parameter management
+- **Standard sklearn API** with `fit()`, `predict()`, `predict_proba()`, and `fit_predict()` methods
 - **Pandas DataFrame integration** with preserved sample and feature names
 - **Comprehensive model diagnostics** including BIC, AIC, and parameter estimates
 - **Automatic model selection** using information criteria
@@ -144,9 +149,70 @@ print("New sample probabilities:")
 print(new_probabilities)
 ```
 
+## sklearn Ecosystem Integration
+
+pyDMM is fully compatible with the scikit-learn ecosystem, enabling advanced workflows:
+
+### Hyperparameter Tuning with GridSearchCV
+
+```python
+from sklearn.model_selection import GridSearchCV
+from pydmm import DirichletMixture
+
+# Define parameter grid
+param_grid = {
+    'n_components': [2, 3, 4, 5]
+}
+
+# Create GridSearchCV
+grid_search = GridSearchCV(
+    DirichletMixture(verbose=False, random_state=42),
+    param_grid,
+    cv=3
+)
+
+# Fit and find best model
+grid_search.fit(data)
+print(f"Best number of components: {grid_search.best_params_['n_components']}")
+
+# Use best model
+best_model = grid_search.best_estimator_
+predictions = best_model.predict(new_data)
+```
+
+### Cross-Validation
+
+```python
+from sklearn.model_selection import cross_val_score
+from pydmm import DirichletMixture
+
+dmm = DirichletMixture(n_components=3, random_state=42)
+scores = cross_val_score(dmm, data, cv=5)
+print(f"Cross-validation scores: {scores}")
+print(f"Mean score: {scores.mean():.4f} (+/- {scores.std() * 2:.4f})")
+```
+
+### Pipeline Integration
+
+```python
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from pydmm import DirichletMixture
+
+# Note: StandardScaler is shown for example, but may not be appropriate for count data
+pipeline = Pipeline([
+    ('dmm', DirichletMixture(n_components=3, random_state=42))
+])
+
+pipeline.fit(data)
+predictions = pipeline.predict(new_data)
+```
+
 ## API Reference
 
 ### DirichletMixture
+
+Inherits from `sklearn.base.BaseEstimator` and `sklearn.base.ClassifierMixin` for full sklearn compatibility.
 
 **Parameters:**
 - `n_components` (int): Number of mixture components (default: 2)
@@ -154,10 +220,18 @@ print(new_probabilities)
 - `random_state` (int): Random seed for reproducibility (default: 42)
 
 **Methods:**
-- `fit(X)`: Fit the model to data X
+- `fit(X, y=None)`: Fit the model to data X (y is ignored, for sklearn compatibility)
 - `predict(X)`: Predict the most likely cluster for each sample
 - `predict_proba(X)`: Get cluster assignment probabilities for each sample
 - `fit_predict(X)`: Fit model and return cluster assignments
+- `score(X)`: Return the negative log-likelihood of the data
+- `get_params(deep=True)`: Get parameters for this estimator
+- `set_params(**params)`: Set parameters for this estimator
+
+**Attributes (after fitting):**
+- `result_`: DirichletMixtureResult object with detailed results
+- `classes_`: Array of cluster labels [0, 1, ..., n_components-1]
+- `is_fitted`: Boolean indicating if the model has been fitted
 
 ### DirichletMixtureResult
 
@@ -177,13 +251,14 @@ print(new_probabilities)
 
 See the included example files in `docs/examples/`:
 
+- `sklearn_compatibility.py`: Comprehensive sklearn integration demonstration (GridSearchCV, cross-validation, parameter management)
 - `reference_counts.py`: Complete workflow with model selection and evaluation
 - `probability_comparison.py`: Compare probability computations between C and Python implementations
 - `classification_comparison.py`: Compare classification decisions between C and Python implementations
 
 Run an example:
 ```bash
-python docs/examples/reference_counts.py
+python docs/examples/sklearn_compatibility.py
 ```
 
 ## Developer Documentation
@@ -195,6 +270,8 @@ For developers who want to contribute to pyDMM, modify its functionality, or und
 - Python >= 3.7
 - NumPy >= 1.19.0
 - pandas >= 1.0.0
+- scikit-learn >= 0.24.0
+- scipy >= 1.5.0
 - GSL (GNU Scientific Library)
 
 ## License
