@@ -337,3 +337,219 @@ class TestDirichletMixtureResult:
 
         for attr in expected_attrs:
             assert hasattr(self.result, attr)
+
+
+class TestComponentLabeling:
+    """Test component labeling functionality"""
+
+    def setup_method(self):
+        """Set up a fitted model for testing labeling"""
+        np.random.seed(42)
+
+        # Create test data with 3 distinct groups
+        group1_props = np.array([0.7, 0.2, 0.1])
+        group2_props = np.array([0.2, 0.7, 0.1])
+        group3_props = np.array([0.1, 0.2, 0.7])
+
+        n_samples_per_group = 20
+        samples = []
+
+        for props in [group1_props, group2_props, group3_props]:
+            for _ in range(n_samples_per_group):
+                total_count = np.random.poisson(1000) + 100
+                counts = np.random.multinomial(total_count, props)
+                samples.append(counts)
+
+        self.data = np.array(samples, dtype=np.int32)
+        self.data_df = pd.DataFrame(
+            self.data,
+            index=[f"Sample_{i:03d}" for i in range(len(samples))],
+            columns=[f"Feature_{i}" for i in range(3)]
+        )
+
+        # Fit model with 3 components
+        self.dmm = DirichletMixture(n_components=3, verbose=False, random_state=42)
+        self.dmm.fit(self.data)
+        self.result = self.dmm.result
+
+    def test_initial_state_no_labels(self):
+        """Test that component_labels is None initially"""
+        assert self.result.component_labels is None
+
+    def test_set_valid_labels(self):
+        """Test setting valid labels"""
+        labels = {0: 'Healthy', 1: 'Diseased', 2: 'Control'}
+        self.result.set_component_labels(labels)
+
+        assert self.result.component_labels is not None
+        assert self.result.component_labels == labels
+        # Ensure it's a copy, not the same object
+        assert self.result.component_labels is not labels
+
+    def test_set_labels_invalid_type(self):
+        """Test that non-dict input raises ValueError"""
+        with pytest.raises(ValueError, match="labels must be a dictionary"):
+            self.result.set_component_labels(['Healthy', 'Diseased', 'Control'])
+
+    def test_set_labels_missing_components(self):
+        """Test that missing component indices raise ValueError"""
+        labels = {0: 'Healthy', 1: 'Diseased'}  # Missing component 2
+
+        with pytest.raises(ValueError, match="missing components: \\[2\\]"):
+            self.result.set_component_labels(labels)
+
+    def test_set_labels_extra_components(self):
+        """Test that extra component indices raise ValueError"""
+        labels = {0: 'Healthy', 1: 'Diseased', 2: 'Control', 3: 'Extra'}
+
+        with pytest.raises(ValueError, match="invalid component indices: \\[3\\]"):
+            self.result.set_component_labels(labels)
+
+    def test_set_labels_missing_and_extra(self):
+        """Test error message when both missing and extra components"""
+        labels = {0: 'Healthy', 3: 'Extra'}
+
+        with pytest.raises(ValueError, match="missing components.*invalid component indices"):
+            self.result.set_component_labels(labels)
+
+    def test_set_labels_non_integer_keys(self):
+        """Test that non-integer keys raise ValueError"""
+        labels = {'0': 'Healthy', '1': 'Diseased', '2': 'Control'}
+
+        with pytest.raises(ValueError, match="All keys.*must be integers"):
+            self.result.set_component_labels(labels)
+
+    def test_set_labels_non_string_values(self):
+        """Test that non-string values raise ValueError"""
+        labels = {0: 'Healthy', 1: 123, 2: 'Control'}
+
+        with pytest.raises(ValueError, match="All values.*must be strings"):
+            self.result.set_component_labels(labels)
+
+    def test_get_best_component_without_labels(self):
+        """Test get_best_component returns integers when no labels are set"""
+        best_components = self.result.get_best_component()
+
+        assert isinstance(best_components, np.ndarray)
+        assert best_components.dtype in [np.int32, np.int64, np.intp]
+        assert len(best_components) == len(self.data)
+        assert all(comp in [0, 1, 2] for comp in best_components)
+
+    def test_get_best_component_with_labels(self):
+        """Test get_best_component returns labels when labels are set"""
+        labels = {0: 'Healthy', 1: 'Diseased', 2: 'Control'}
+        self.result.set_component_labels(labels)
+
+        best_components = self.result.get_best_component()
+
+        assert isinstance(best_components, np.ndarray)
+        assert best_components.dtype.kind in ['U', 'S', 'O']  # Unicode, byte string, or object
+        assert len(best_components) == len(self.data)
+        assert all(comp in ['Healthy', 'Diseased', 'Control'] for comp in best_components)
+
+    def test_get_best_component_consistency(self):
+        """Test that labeled results map correctly to unlabeled results"""
+        labels = {0: 'Healthy', 1: 'Diseased', 2: 'Control'}
+
+        # Get best components without labels
+        best_unlabeled = self.result.get_best_component()
+
+        # Set labels and get best components
+        self.result.set_component_labels(labels)
+        best_labeled = self.result.get_best_component()
+
+        # Verify mapping is correct
+        for unlabeled, labeled in zip(best_unlabeled, best_labeled):
+            assert labeled == labels[unlabeled]
+
+    def test_get_group_assignments_df_without_labels(self):
+        """Test DataFrame column names without labels"""
+        df = self.result.get_group_assignments_df()
+
+        assert isinstance(df, pd.DataFrame)
+        assert list(df.columns) == ['Component_0', 'Component_1', 'Component_2']
+        assert df.shape == (len(self.data), 3)
+
+    def test_get_group_assignments_df_with_labels(self):
+        """Test DataFrame column names with labels"""
+        labels = {0: 'Healthy', 1: 'Diseased', 2: 'Control'}
+        self.result.set_component_labels(labels)
+
+        df = self.result.get_group_assignments_df()
+
+        assert isinstance(df, pd.DataFrame)
+        assert list(df.columns) == ['Healthy component', 'Diseased component', 'Control component']
+        assert df.shape == (len(self.data), 3)
+
+    def test_get_group_assignments_df_data_unchanged(self):
+        """Test that underlying data is the same with or without labels"""
+        labels = {0: 'Healthy', 1: 'Diseased', 2: 'Control'}
+
+        # Get DataFrame without labels
+        df_unlabeled = self.result.get_group_assignments_df()
+
+        # Set labels and get DataFrame
+        self.result.set_component_labels(labels)
+        df_labeled = self.result.get_group_assignments_df()
+
+        # Data should be identical, only column names differ
+        np.testing.assert_array_equal(df_unlabeled.values, df_labeled.values)
+
+    def test_get_group_assignments_df_with_sample_names(self):
+        """Test that sample names are preserved when using labels"""
+        # Fit with DataFrame to get sample names
+        dmm = DirichletMixture(n_components=3, verbose=False, random_state=42)
+        dmm.fit(self.data_df)
+
+        labels = {0: 'Healthy', 1: 'Diseased', 2: 'Control'}
+        dmm.result.set_component_labels(labels)
+
+        df = dmm.result.get_group_assignments_df()
+
+        assert list(df.index) == list(self.data_df.index)
+        assert list(df.columns) == ['Healthy component', 'Diseased component', 'Control component']
+
+    def test_labels_persist_across_calls(self):
+        """Test that labels persist across multiple method calls"""
+        labels = {0: 'Healthy', 1: 'Diseased', 2: 'Control'}
+        self.result.set_component_labels(labels)
+
+        # Call methods multiple times
+        for _ in range(3):
+            best = self.result.get_best_component()
+            df = self.result.get_group_assignments_df()
+
+            assert all(comp in ['Healthy', 'Diseased', 'Control'] for comp in best)
+            assert list(df.columns) == ['Healthy component', 'Diseased component', 'Control component']
+
+    def test_overwrite_labels(self):
+        """Test that labels can be overwritten"""
+        labels1 = {0: 'Healthy', 1: 'Diseased', 2: 'Control'}
+        labels2 = {0: 'Type A', 1: 'Type B', 2: 'Type C'}
+
+        self.result.set_component_labels(labels1)
+        best1 = self.result.get_best_component()
+
+        self.result.set_component_labels(labels2)
+        best2 = self.result.get_best_component()
+
+        # Results should use new labels
+        assert all(comp in ['Type A', 'Type B', 'Type C'] for comp in best2)
+        assert not any(comp in ['Healthy', 'Diseased', 'Control'] for comp in best2)
+
+    def test_user_workflow(self):
+        """Test the complete user workflow from the issue description"""
+        # This simulates the exact workflow requested
+        dmm = DirichletMixture(n_components=3, verbose=False, random_state=42)
+        dmm.fit(self.data)
+
+        # Set labels using the result attribute
+        dmm.result.set_component_labels({0: 'Healthy', 1: 'Diseased', 2: 'Control'})
+
+        # Verify get_best_component uses labels
+        best = dmm.result.get_best_component()
+        assert all(comp in ['Healthy', 'Diseased', 'Control'] for comp in best)
+
+        # Verify get_group_assignments_df uses labels in column names
+        df = dmm.result.get_group_assignments_df()
+        assert list(df.columns) == ['Healthy component', 'Diseased component', 'Control component']
