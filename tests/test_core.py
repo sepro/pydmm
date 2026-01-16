@@ -337,3 +337,249 @@ class TestDirichletMixtureResult:
 
         for attr in expected_attrs:
             assert hasattr(self.result, attr)
+
+
+class TestComponentLabels:
+    """Test component label functionality"""
+
+    def setup_method(self):
+        """Set up test data before each test"""
+        np.random.seed(42)
+
+        # Create simple 3-cluster test data
+        # Cluster 0: High in feature 0
+        cluster0_props = np.array([0.7, 0.2, 0.1])
+        # Cluster 1: High in feature 1
+        cluster1_props = np.array([0.2, 0.7, 0.1])
+        # Cluster 2: High in feature 2
+        cluster2_props = np.array([0.1, 0.2, 0.7])
+
+        n_samples_per_cluster = 30
+        n_features = 3
+
+        samples = []
+        true_labels = []
+
+        for cluster_idx, props in enumerate([cluster0_props, cluster1_props, cluster2_props]):
+            for i in range(n_samples_per_cluster):
+                total_count = np.random.poisson(1000) + 100
+                counts = np.random.multinomial(total_count, props)
+                samples.append(counts)
+                true_labels.append(cluster_idx)
+
+        self.data_array = np.array(samples, dtype=np.int32)
+        self.data_df = pd.DataFrame(
+            self.data_array,
+            index=[f"Sample_{i:03d}" for i in range(len(samples))],
+            columns=[f"Feature_{i}" for i in range(n_features)]
+        )
+        self.true_labels = np.array(true_labels)
+        self.n_samples = len(samples)
+        self.n_features = n_features
+
+    def test_component_labels_initialization(self):
+        """Test that component_labels can be provided at initialization"""
+        labels = {0: 'Healthy', 1: 'Diseased', 2: 'Control'}
+        dmm = DirichletMixture(n_components=3, component_labels=labels, random_state=42)
+
+        assert dmm.component_labels == labels
+
+    def test_fit_with_component_labels(self):
+        """Test fitting with component labels"""
+        labels = {0: 'Healthy', 1: 'Diseased', 2: 'Control'}
+        dmm = DirichletMixture(n_components=3, component_labels=labels, random_state=42)
+        dmm.fit(self.data_array)
+
+        assert dmm.result.component_labels == labels
+        assert dmm.result is not None
+
+    def test_get_best_component_with_labels(self):
+        """Test get_best_component returns labels instead of indices"""
+        labels = {0: 'Healthy', 1: 'Diseased', 2: 'Control'}
+        dmm = DirichletMixture(n_components=3, component_labels=labels, random_state=42)
+        dmm.fit(self.data_array)
+
+        best_components = dmm.result.get_best_component()
+
+        # Should return string labels, not integers
+        assert best_components.dtype.kind in ('U', 'O')  # Unicode or object string type
+        assert all(label in ['Healthy', 'Diseased', 'Control'] for label in best_components)
+        assert len(best_components) == self.n_samples
+
+    def test_get_best_component_without_labels(self):
+        """Test get_best_component returns indices when no labels provided"""
+        dmm = DirichletMixture(n_components=3, random_state=42)
+        dmm.fit(self.data_array)
+
+        best_components = dmm.result.get_best_component()
+
+        # Should return integer indices
+        assert best_components.dtype == np.int64 or best_components.dtype == np.intp
+        assert all(comp in [0, 1, 2] for comp in best_components)
+        assert len(best_components) == self.n_samples
+
+    def test_get_group_assignments_df_with_labels(self):
+        """Test get_group_assignments_df uses labeled column names"""
+        labels = {0: 'Healthy', 1: 'Diseased', 2: 'Control'}
+        dmm = DirichletMixture(n_components=3, component_labels=labels, random_state=42)
+        dmm.fit(self.data_df)
+
+        df = dmm.result.get_group_assignments_df()
+
+        # Check column names use the label_component format
+        expected_columns = ['Healthy_component', 'Diseased_component', 'Control_component']
+        assert list(df.columns) == expected_columns
+
+        # Check DataFrame properties
+        assert df.shape == (self.n_samples, 3)
+        assert list(df.index) == list(self.data_df.index)
+
+        # Check probabilities sum to 1
+        np.testing.assert_allclose(df.sum(axis=1), 1.0, rtol=1e-10)
+
+    def test_get_group_assignments_df_without_labels(self):
+        """Test get_group_assignments_df uses Component_{i} format without labels"""
+        dmm = DirichletMixture(n_components=3, random_state=42)
+        dmm.fit(self.data_df)
+
+        df = dmm.result.get_group_assignments_df()
+
+        # Check column names use the Component_{i} format
+        expected_columns = ['Component_0', 'Component_1', 'Component_2']
+        assert list(df.columns) == expected_columns
+
+        # Check DataFrame properties
+        assert df.shape == (self.n_samples, 3)
+
+    def test_get_parameter_estimates_df_with_labels(self):
+        """Test get_parameter_estimates_df uses labeled column names"""
+        labels = {0: 'Healthy', 1: 'Diseased', 2: 'Control'}
+        dmm = DirichletMixture(n_components=3, component_labels=labels, random_state=42)
+        dmm.fit(self.data_df)
+
+        param_dict = dmm.result.get_parameter_estimates_df()
+
+        # Check that all three DataFrames have labeled columns
+        expected_columns = ['Healthy_component', 'Diseased_component', 'Control_component']
+        for key in ['Lower', 'Estimate', 'Upper']:
+            assert key in param_dict
+            df = param_dict[key]
+            assert list(df.columns) == expected_columns
+            assert df.shape == (self.n_features, 3)
+
+    def test_get_parameter_estimates_df_without_labels(self):
+        """Test get_parameter_estimates_df uses Component_{i} format without labels"""
+        dmm = DirichletMixture(n_components=3, random_state=42)
+        dmm.fit(self.data_df)
+
+        param_dict = dmm.result.get_parameter_estimates_df()
+
+        # Check that all three DataFrames have indexed columns
+        expected_columns = ['Component_0', 'Component_1', 'Component_2']
+        for key in ['Lower', 'Estimate', 'Upper']:
+            df = param_dict[key]
+            assert list(df.columns) == expected_columns
+
+    def test_component_labels_validation_wrong_type(self):
+        """Test that component_labels must be a dict"""
+        dmm = DirichletMixture(n_components=3, component_labels=['a', 'b', 'c'], random_state=42)
+
+        with pytest.raises(TypeError, match="component_labels must be a dictionary"):
+            dmm.fit(self.data_array)
+
+    def test_component_labels_validation_wrong_keys(self):
+        """Test that component_labels must have correct keys"""
+        # Missing key 2
+        labels = {0: 'Healthy', 1: 'Diseased'}
+        dmm = DirichletMixture(n_components=3, component_labels=labels, random_state=42)
+
+        with pytest.raises(ValueError, match="component_labels must have keys"):
+            dmm.fit(self.data_array)
+
+        # Extra key
+        labels = {0: 'Healthy', 1: 'Diseased', 2: 'Control', 3: 'Extra'}
+        dmm = DirichletMixture(n_components=3, component_labels=labels, random_state=42)
+
+        with pytest.raises(ValueError, match="component_labels must have keys"):
+            dmm.fit(self.data_array)
+
+        # Wrong keys entirely
+        labels = {1: 'Diseased', 2: 'Control', 3: 'Other'}
+        dmm = DirichletMixture(n_components=3, component_labels=labels, random_state=42)
+
+        with pytest.raises(ValueError, match="component_labels must have keys"):
+            dmm.fit(self.data_array)
+
+    def test_component_labels_validation_non_string_values(self):
+        """Test that component label values must be strings"""
+        labels = {0: 'Healthy', 1: 123, 2: 'Control'}
+        dmm = DirichletMixture(n_components=3, component_labels=labels, random_state=42)
+
+        with pytest.raises(TypeError, match="All component labels must be strings"):
+            dmm.fit(self.data_array)
+
+    def test_component_labels_with_two_components(self):
+        """Test component labels with 2 components"""
+        # Use subset of data (first two clusters)
+        data_subset = self.data_array[:60]  # 30 samples from each of first two clusters
+
+        labels = {0: 'TypeA', 1: 'TypeB'}
+        dmm = DirichletMixture(n_components=2, component_labels=labels, random_state=42)
+        dmm.fit(data_subset)
+
+        # Test get_best_component
+        best_components = dmm.result.get_best_component()
+        assert all(label in ['TypeA', 'TypeB'] for label in best_components)
+
+        # Test get_group_assignments_df
+        df = dmm.result.get_group_assignments_df()
+        expected_columns = ['TypeA_component', 'TypeB_component']
+        assert list(df.columns) == expected_columns
+
+    def test_component_labels_none_behavior(self):
+        """Test that None component_labels works correctly"""
+        dmm = DirichletMixture(n_components=3, component_labels=None, random_state=42)
+        dmm.fit(self.data_array)
+
+        assert dmm.result.component_labels is None
+
+        # get_best_component should return integers
+        best_components = dmm.result.get_best_component()
+        assert best_components.dtype in [np.int64, np.intp]
+
+        # DataFrames should use Component_{i} format
+        df = dmm.result.get_group_assignments_df()
+        assert 'Component_0' in df.columns
+
+    def test_component_labels_with_special_characters(self):
+        """Test component labels with special characters and spaces"""
+        labels = {0: 'Type-A (Healthy)', 1: 'Type B: Diseased', 2: 'Control_Group'}
+        dmm = DirichletMixture(n_components=3, component_labels=labels, random_state=42)
+        dmm.fit(self.data_array)
+
+        # Should work without errors
+        best_components = dmm.result.get_best_component()
+        assert len(best_components) == self.n_samples
+
+        df = dmm.result.get_group_assignments_df()
+        expected_columns = [
+            'Type-A (Healthy)_component',
+            'Type B: Diseased_component',
+            'Control_Group_component'
+        ]
+        assert list(df.columns) == expected_columns
+
+    def test_component_labels_integration_with_predict(self):
+        """Test that component labels work with predict and fit_predict methods"""
+        labels = {0: 'Healthy', 1: 'Diseased', 2: 'Control'}
+        dmm = DirichletMixture(n_components=3, component_labels=labels, random_state=42)
+        dmm.fit(self.data_array)
+
+        # predict should still return indices (for sklearn compatibility)
+        predictions = dmm.predict(self.data_array[:10])
+        assert all(pred in [0, 1, 2] for pred in predictions)
+
+        # fit_predict should return labels via get_best_component
+        dmm2 = DirichletMixture(n_components=3, component_labels=labels, random_state=42)
+        fit_predict_result = dmm2.fit_predict(self.data_array)
+        assert all(label in ['Healthy', 'Diseased', 'Control'] for label in fit_predict_result)

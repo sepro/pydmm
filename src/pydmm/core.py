@@ -30,12 +30,14 @@ class DirichletMixtureResult:
         n_components (int): Number of mixture components used
         n_samples (int): Number of samples in the dataset
         n_features (int): Number of features in the dataset
+        component_labels (dict): Optional mapping of component indices to human-readable labels
     """
 
     def __init__(self, result_dict: Dict[str, Any], n_components: int,
                  n_samples: int, n_features: int,
                  sample_names: Optional[list] = None,
-                 feature_names: Optional[list] = None):
+                 feature_names: Optional[list] = None,
+                 component_labels: Optional[Dict[int, str]] = None):
         self.goodness_of_fit = result_dict["GoodnessOfFit"]
         self.group_assignments = result_dict["Group"]
         self.mixture_weights = result_dict["Mixture"]["Weight"]
@@ -45,21 +47,57 @@ class DirichletMixtureResult:
         self.n_features = n_features
         self.sample_names = sample_names
         self.feature_names = feature_names
+        self.component_labels = component_labels
 
     def get_best_component(self) -> np.ndarray:
-        """Get the most likely component for each sample."""
-        return np.argmax(self.group_assignments, axis=1)
+        """
+        Get the most likely component for each sample.
+
+        Returns:
+            np.ndarray: Array of component assignments. If component_labels were provided,
+                       returns string labels; otherwise returns integer indices.
+        """
+        indices = np.argmax(self.group_assignments, axis=1)
+
+        if self.component_labels is not None:
+            # Map indices to labels
+            return np.array([self.component_labels[idx] for idx in indices])
+
+        return indices
 
     def get_group_assignments_df(self) -> pd.DataFrame:
-        """Get group assignments as a pandas DataFrame."""
+        """
+        Get group assignments as a pandas DataFrame.
+
+        Returns:
+            pd.DataFrame: DataFrame with component probability assignments.
+                         If component_labels were provided, columns are named
+                         "{label}_component"; otherwise "Component_{index}".
+        """
         index = self.sample_names if self.sample_names is not None else None
-        columns = [f"Component_{i}" for i in range(self.n_components)]
+
+        if self.component_labels is not None:
+            columns = [f"{self.component_labels[i]}_component" for i in range(self.n_components)]
+        else:
+            columns = [f"Component_{i}" for i in range(self.n_components)]
+
         return pd.DataFrame(self.group_assignments, index=index, columns=columns)
 
     def get_parameter_estimates_df(self) -> Dict[str, pd.DataFrame]:
-        """Get parameter estimates as pandas DataFrames."""
+        """
+        Get parameter estimates as pandas DataFrames.
+
+        Returns:
+            dict: Dictionary containing 'Lower', 'Estimate', and 'Upper' DataFrames.
+                  If component_labels were provided, columns are named
+                  "{label}_component"; otherwise "Component_{index}".
+        """
         index = self.feature_names if self.feature_names is not None else None
-        columns = [f"Component_{i}" for i in range(self.n_components)]
+
+        if self.component_labels is not None:
+            columns = [f"{self.component_labels[i]}_component" for i in range(self.n_components)]
+        else:
+            columns = [f"Component_{i}" for i in range(self.n_components)]
 
         return {
             "Lower": pd.DataFrame(self.parameter_estimates["Lower"], index=index, columns=columns),
@@ -91,23 +129,54 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
         n_components (int): Number of mixture components (default: 2)
         verbose (bool): Whether to print fitting progress (default: False)
         random_state (int): Random seed for reproducibility (default: 42)
+        component_labels (dict, optional): Dictionary mapping component indices (0 to n_components-1)
+            to human-readable labels. If provided, these labels will be used in
+            get_best_component() and DataFrame column names. (default: None)
 
     Attributes:
         n_components (int): Number of mixture components
         verbose (bool): Verbosity flag
         random_state (int): Random seed
+        component_labels (dict): Component labels mapping
         is_fitted (bool): Whether the model has been fitted
         result_ (DirichletMixtureResult): Fitting results (available after fit)
         classes_ (np.ndarray): Cluster labels (available after fit)
     """
 
     def __init__(self, n_components: int = 2, verbose: bool = False,
-                 random_state: int = 42):
+                 random_state: int = 42, component_labels: Optional[Dict[int, str]] = None):
         self.n_components = n_components
         self.verbose = verbose
         self.random_state = random_state
+        self.component_labels = component_labels
         self.is_fitted = False
         self.result_ = None
+
+    def _validate_component_labels(self):
+        """Validate component_labels dictionary."""
+        if self.component_labels is None:
+            return
+
+        if not isinstance(self.component_labels, dict):
+            raise TypeError("component_labels must be a dictionary")
+
+        # Check that all keys are integers from 0 to n_components-1
+        expected_keys = set(range(self.n_components))
+        actual_keys = set(self.component_labels.keys())
+
+        if actual_keys != expected_keys:
+            raise ValueError(
+                f"component_labels must have keys {{0, 1, ..., {self.n_components-1}}}. "
+                f"Got keys: {actual_keys}"
+            )
+
+        # Check that all values are strings
+        for key, value in self.component_labels.items():
+            if not isinstance(value, str):
+                raise TypeError(
+                    f"All component labels must be strings. "
+                    f"Label for component {key} is {type(value).__name__}"
+                )
 
     def _validate_input(self, X: Union[np.ndarray, pd.DataFrame]) -> tuple:
         """Validate and convert input data."""
@@ -181,6 +250,9 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
             self : DirichletMixture
                 Returns self for method chaining
         """
+        # Validate component labels
+        self._validate_component_labels()
+
         X_array, sample_names, feature_names = self._validate_input(X)
 
         # Ensure array is contiguous for C interface
@@ -201,7 +273,8 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
             n_samples=X_array.shape[0],
             n_features=X_array.shape[1],
             sample_names=sample_names,
-            feature_names=feature_names
+            feature_names=feature_names,
+            component_labels=self.component_labels
         )
 
         self.is_fitted = True
