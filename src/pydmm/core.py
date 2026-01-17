@@ -45,15 +45,83 @@ class DirichletMixtureResult:
         self.n_features = n_features
         self.sample_names = sample_names
         self.feature_names = feature_names
+        self.component_labels = None
+
+    def set_component_labels(self, labels: Dict[int, str]) -> None:
+        """
+        Set human-readable labels for each component.
+
+        Parameters:
+            labels (dict): Dictionary mapping component indices (0 to n_components-1)
+                          to string labels. All component indices must be present.
+
+        Raises:
+            ValueError: If labels are invalid (missing components, invalid indices,
+                       non-string values)
+
+        Example:
+            >>> result.set_component_labels({0: 'Healthy', 1: 'Diseased', 2: 'Control'})
+        """
+        if not isinstance(labels, dict):
+            raise ValueError("labels must be a dictionary")
+
+        # Check that all keys are integers (before checking indices)
+        if not all(isinstance(k, (int, np.integer)) for k in labels.keys()):
+            raise ValueError("All keys in labels dictionary must be integers")
+
+        # Check that all values are strings
+        if not all(isinstance(v, str) for v in labels.values()):
+            raise ValueError("All values in labels dictionary must be strings")
+
+        # Check that all component indices are present
+        expected_indices = set(range(self.n_components))
+        provided_indices = set(labels.keys())
+
+        if provided_indices != expected_indices:
+            missing = expected_indices - provided_indices
+            extra = provided_indices - expected_indices
+            error_parts = []
+            if missing:
+                error_parts.append(f"missing components: {sorted(missing)}")
+            if extra:
+                error_parts.append(f"invalid component indices: {sorted(extra)}")
+            raise ValueError(f"Label dictionary must contain all component indices 0 to {self.n_components-1}. " + ", ".join(error_parts))
+
+        # Store the labels
+        self.component_labels = labels.copy()
 
     def get_best_component(self) -> np.ndarray:
-        """Get the most likely component for each sample."""
-        return np.argmax(self.group_assignments, axis=1)
+        """
+        Get the most likely component for each sample.
+
+        Returns:
+            np.ndarray: If component labels are set, returns array of string labels.
+                       Otherwise, returns array of integer component indices.
+        """
+        component_indices = np.argmax(self.group_assignments, axis=1)
+
+        if self.component_labels is not None:
+            # Map indices to labels
+            return np.array([self.component_labels[idx] for idx in component_indices])
+        else:
+            return component_indices
 
     def get_group_assignments_df(self) -> pd.DataFrame:
-        """Get group assignments as a pandas DataFrame."""
+        """
+        Get group assignments as a pandas DataFrame.
+
+        Returns:
+            pd.DataFrame: DataFrame with sample probabilities for each component.
+                         Column names are "{label} component" if labels are set,
+                         otherwise "Component_{number}".
+        """
         index = self.sample_names if self.sample_names is not None else None
-        columns = [f"Component_{i}" for i in range(self.n_components)]
+
+        if self.component_labels is not None:
+            columns = [f"{self.component_labels[i]} component" for i in range(self.n_components)]
+        else:
+            columns = [f"Component_{i}" for i in range(self.n_components)]
+
         return pd.DataFrame(self.group_assignments, index=index, columns=columns)
 
     def get_parameter_estimates_df(self) -> Dict[str, pd.DataFrame]:
