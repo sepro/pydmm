@@ -182,65 +182,6 @@ print("New sample probabilities:")
 print(new_probabilities)
 ```
 
-## sklearn Ecosystem Integration
-
-pyDMM is fully compatible with the scikit-learn ecosystem, enabling advanced workflows:
-
-### Hyperparameter Tuning with GridSearchCV
-
-```python
-from sklearn.model_selection import GridSearchCV
-from pydmm import DirichletMixture
-
-# Define parameter grid
-param_grid = {
-    'n_components': [2, 3, 4, 5]
-}
-
-# Create GridSearchCV
-grid_search = GridSearchCV(
-    DirichletMixture(verbose=False, random_state=42),
-    param_grid,
-    cv=3
-)
-
-# Fit and find best model
-grid_search.fit(data)
-print(f"Best number of components: {grid_search.best_params_['n_components']}")
-
-# Use best model
-best_model = grid_search.best_estimator_
-predictions = best_model.predict(new_data)
-```
-
-### Cross-Validation
-
-```python
-from sklearn.model_selection import cross_val_score
-from pydmm import DirichletMixture
-
-dmm = DirichletMixture(n_components=3, random_state=42)
-scores = cross_val_score(dmm, data, cv=5)
-print(f"Cross-validation scores: {scores}")
-print(f"Mean score: {scores.mean():.4f} (+/- {scores.std() * 2:.4f})")
-```
-
-### Pipeline Integration
-
-```python
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
-from pydmm import DirichletMixture
-
-# Note: StandardScaler is shown for example, but may not be appropriate for count data
-pipeline = Pipeline([
-    ('dmm', DirichletMixture(n_components=3, random_state=42))
-])
-
-pipeline.fit(data)
-predictions = pipeline.predict(new_data)
-```
-
 ## API Reference
 
 ### DirichletMixture
@@ -302,7 +243,7 @@ For developers who want to contribute to pyDMM, modify its functionality, or und
 
 ## Requirements
 
-- Python >= 3.7
+- Python >= 3.10
 - NumPy >= 1.19.0
 - pandas >= 1.0.0
 - scikit-learn >= 0.24.0
@@ -360,3 +301,4 @@ Additionally, please consider citing the original publication:
 
 
 For questions, issues, or contributions, please use the GitHub issue tracker.
+
