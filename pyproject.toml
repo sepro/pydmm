@@ -35,6 +35,8 @@ keywords = ["dirichlet", "mixture model", "compositional data", "microbiome"]
 [project.optional-dependencies]
 dev = [
     "scipy",
+    "pytest",
+    "pytest-cov",
 ]
 
 [project.urls]
