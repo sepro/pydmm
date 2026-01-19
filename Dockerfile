@@ -14,6 +14,8 @@ RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
     python3.13-venv \
+    build-essential \
+    libgsl-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Claude Code globally
