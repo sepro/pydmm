@@ -1,3 +1,5 @@
+[![Run Tests](https://github.com/sepro/pydmm/actions/workflows/test.yml/badge.svg)](https://github.com/sepro/pydmm/actions/workflows/test.yml)
+
 # pyDMM - Python Dirichlet Mixture Model
 
 pyDMM provides a Python interface to a C implementation of Dirichlet Mixture Model fitting for compositional data analysis. It's particularly useful for analyzing microbiome data and other count-based compositional datasets.
@@ -355,5 +357,6 @@ Additionally, please consider citing the original publication:
 6. Submit a pull request
 
 ## Support
+
 
 For questions, issues, or contributions, please use the GitHub issue tracker.
