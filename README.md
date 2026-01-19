@@ -124,6 +124,37 @@ param_estimates = dmm.result.get_parameter_estimates_df()
 print(param_estimates['Estimate'])
 ```
 
+## Component Labeling
+
+By default, clusters are identified by numeric indices (0, 1, 2, ...). For better interpretability, you can assign human-readable labels to components:
+
+```python
+# Fit model
+dmm = DirichletMixture(n_components=3, random_state=42)
+dmm.fit(data)
+
+# Assign meaningful labels to components
+dmm.result.set_component_labels({
+    0: 'Healthy',
+    1: 'Diseased',
+    2: 'Control'
+})
+
+# Get cluster assignments with labels
+labels = dmm.result.get_best_component()
+print("Cluster assignments:", labels)  # Returns ['Healthy', 'Diseased', ...]
+
+# Assignment probabilities also use labels
+probabilities = dmm.result.get_group_assignments_df()
+print(probabilities)  # Columns named 'Healthy', 'Diseased', 'Control'
+
+# Predictions also return labeled clusters
+new_labels = dmm.predict(new_data)
+print("New sample labels:", new_labels)  # Returns labeled predictions
+```
+
+**Note:** Component labels must be set after fitting the model and before making predictions or retrieving results.
+
 ## Predicting New Data
 
 After fitting a model, you can predict cluster assignments for new samples:
@@ -246,6 +277,7 @@ Inherits from `sklearn.base.BaseEstimator` and `sklearn.base.ClassifierMixin` fo
 - `get_group_assignments_df()`: Get assignments as pandas DataFrame
 - `get_parameter_estimates_df()`: Get parameter estimates as DataFrames
 - `summary()`: Get comprehensive model summary
+- `set_component_labels(labels)`: Assign human-readable labels to components (dict mapping component index to label string)
 
 ## Examples
 
@@ -253,6 +285,7 @@ See the included example files in `docs/examples/`:
 
 - `sklearn_compatibility.py`: Comprehensive sklearn integration demonstration (GridSearchCV, cross-validation, parameter management)
 - `reference_counts.py`: Complete workflow with model selection and evaluation
+- `component_labeling.py`: Demonstration of human-readable component labeling for interpretable results
 - `probability_comparison.py`: Compare probability computations between C and Python implementations
 - `classification_comparison.py`: Compare classification decisions between C and Python implementations
 
