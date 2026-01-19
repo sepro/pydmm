@@ -111,6 +111,22 @@ class TestDirichletMixture:
         with pytest.raises(ValueError):
             dmm.fit(np.array([[-1, 2], [3, 4]], dtype=np.int32))
 
+    def test_fit_invalid_input_type(self):
+        """Test fitting with invalid input type (neither DataFrame nor numpy array)"""
+        dmm = DirichletMixture(n_components=2)
+
+        # Test with list (should raise ValueError)
+        with pytest.raises(ValueError, match="Input must be a pandas DataFrame or numpy array"):
+            dmm.fit([[1, 2], [3, 4]])
+
+        # Test with string (should raise ValueError)
+        with pytest.raises(ValueError, match="Input must be a pandas DataFrame or numpy array"):
+            dmm.fit("invalid")
+
+        # Test with dict (should raise ValueError)
+        with pytest.raises(ValueError, match="Input must be a pandas DataFrame or numpy array"):
+            dmm.fit({"a": [1, 2], "b": [3, 4]})
+
     def test_predict_proba(self):
         """Test predict_proba method"""
         dmm = DirichletMixture(n_components=2, verbose=False, random_state=42)
@@ -307,6 +323,20 @@ class TestDirichletMixture:
             dmm2.result.mixture_weights,
             rtol=1e-10
         )
+
+    def test_score_without_fitting(self):
+        """Test that score() warns and fits when model is not fitted"""
+        dmm = DirichletMixture(n_components=2, verbose=False, random_state=42)
+
+        # Model is not fitted yet, should warn when calling score()
+        with pytest.warns(UserWarning, match="Model was not fitted before calling score"):
+            score = dmm.score(self.data_array)
+
+        # After calling score, model should be fitted
+        assert dmm.is_fitted
+        assert dmm.result is not None
+        assert isinstance(score, (int, float))
+        assert not np.isnan(score)
 
 
 class TestDirichletMixtureResult:

@@ -11,8 +11,8 @@ from sklearn.base import BaseEstimator, ClassifierMixin
 
 try:
     from . import pydmm_core
-except ImportError:
-    raise ImportError(
+except ImportError:  # pragma: no cover
+    raise ImportError(  # pragma: no cover
         "pydmm_core module not available. Please install the package with "
         "'pip install -e .' to compile the C extension."
     )
@@ -360,6 +360,11 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
             float: Negative log-likelihood (lower is better)
         """
         if not self.is_fitted:
+            warnings.warn(
+                "Model was not fitted before calling score(). "
+                "Fitting the model now on the provided data.",
+                UserWarning
+            )
             self.fit(X)
 
         return -self.result_.goodness_of_fit["NLE"]  # Return negative NLE
