@@ -358,6 +358,108 @@ class TestSklearnCompatibility:
         assert dmm.n_components == 5
         assert dmm.verbose == True
 
+    def test_feature_names_in_with_dataframe(self):
+        """Test that feature_names_in_ is set when fitting with DataFrame"""
+        dmm = DirichletMixture(n_components=2, verbose=False, random_state=42)
+
+        # Should not have feature_names_in_ before fitting
+        assert not hasattr(dmm, 'feature_names_in_'), "Should not have feature_names_in_ before fitting"
+
+        # Fit with DataFrame
+        dmm.fit(self.data_df)
+
+        # Should have feature_names_in_ after fitting with DataFrame
+        assert hasattr(dmm, 'feature_names_in_'), "Should have feature_names_in_ after fitting with DataFrame"
+
+        # Check type - should be numpy array of object dtype
+        assert isinstance(dmm.feature_names_in_, np.ndarray)
+        assert dmm.feature_names_in_.dtype == object
+
+        # Check values - should match DataFrame columns
+        expected_names = np.array(['Feature_0', 'Feature_1', 'Feature_2', 'Feature_3'], dtype=object)
+        np.testing.assert_array_equal(dmm.feature_names_in_, expected_names)
+
+        # Check length
+        assert len(dmm.feature_names_in_) == self.n_features
+
+    def test_feature_names_in_not_set_with_array(self):
+        """Test that feature_names_in_ is NOT set when fitting with numpy array"""
+        dmm = DirichletMixture(n_components=2, verbose=False, random_state=42)
+
+        # Fit with numpy array
+        dmm.fit(self.data_array)
+
+        # Should NOT have feature_names_in_ when fitted with array
+        assert not hasattr(dmm, 'feature_names_in_'), \
+            "Should not have feature_names_in_ when fitting with numpy array"
+
+    def test_feature_names_in_with_custom_columns(self):
+        """Test feature_names_in_ with custom column names"""
+        # Create DataFrame with custom column names
+        custom_columns = ['Taxa_A', 'Taxa_B', 'Taxa_C', 'Taxa_D']
+        df_custom = pd.DataFrame(self.data_array, columns=custom_columns)
+
+        dmm = DirichletMixture(n_components=2, verbose=False, random_state=42)
+        dmm.fit(df_custom)
+
+        # Check that custom names are stored
+        assert hasattr(dmm, 'feature_names_in_')
+        expected_names = np.array(custom_columns, dtype=object)
+        np.testing.assert_array_equal(dmm.feature_names_in_, expected_names)
+
+    def test_feature_names_in_preserved_after_multiple_fits(self):
+        """Test that feature_names_in_ is updated when refitting"""
+        dmm = DirichletMixture(n_components=2, verbose=False, random_state=42)
+
+        # First fit with DataFrame
+        dmm.fit(self.data_df)
+        first_names = dmm.feature_names_in_.copy()
+
+        # Second fit with array (should remove feature_names_in_)
+        dmm.fit(self.data_array)
+        assert not hasattr(dmm, 'feature_names_in_'), \
+            "feature_names_in_ should not exist after fitting with array"
+
+        # Third fit with DataFrame again (should restore)
+        dmm.fit(self.data_df)
+        assert hasattr(dmm, 'feature_names_in_')
+        np.testing.assert_array_equal(dmm.feature_names_in_, first_names)
+
+    def test_feature_names_in_with_different_dataframe(self):
+        """Test that feature_names_in_ changes when fitting different DataFrames"""
+        dmm = DirichletMixture(n_components=2, verbose=False, random_state=42)
+
+        # First DataFrame
+        df1 = pd.DataFrame(self.data_array[:20], columns=['A', 'B', 'C', 'D'])
+        dmm.fit(df1)
+        names1 = dmm.feature_names_in_.copy()
+
+        # Second DataFrame with different columns
+        df2 = pd.DataFrame(self.data_array[:20], columns=['W', 'X', 'Y', 'Z'])
+        dmm.fit(df2)
+        names2 = dmm.feature_names_in_
+
+        # Names should be different
+        assert not np.array_equal(names1, names2)
+        np.testing.assert_array_equal(names2, np.array(['W', 'X', 'Y', 'Z'], dtype=object))
+
+    def test_feature_names_in_sklearn_compatibility(self):
+        """Test that feature_names_in_ follows sklearn conventions"""
+        dmm = DirichletMixture(n_components=2, verbose=False, random_state=42)
+        dmm.fit(self.data_df)
+
+        # Should be a 1D array
+        assert dmm.feature_names_in_.ndim == 1
+
+        # Should have object dtype (string array)
+        assert dmm.feature_names_in_.dtype == object
+
+        # All elements should be strings
+        assert all(isinstance(name, str) for name in dmm.feature_names_in_)
+
+        # Length should match n_features
+        assert len(dmm.feature_names_in_) == dmm.result_.n_features
+
 
 class TestBackwardCompatibility:
     """Test that existing code continues to work"""

@@ -167,6 +167,7 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
         is_fitted (bool): Whether the model has been fitted
         result_ (DirichletMixtureResult): Fitting results (available after fit)
         classes_ (np.ndarray): Cluster labels (available after fit)
+        feature_names_in_ (np.ndarray): Names of features seen during fit (available after fit with DataFrame)
     """
 
     def __init__(self, n_components: int = 2, verbose: bool = False,
@@ -294,6 +295,14 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
 
         # Set classes_ attribute for sklearn ClassifierMixin compatibility
         self.classes_ = np.arange(self.n_components)
+
+        # Set feature_names_in_ attribute for sklearn compatibility
+        if feature_names is not None:
+            self.feature_names_in_ = np.asarray(feature_names, dtype=object)
+        else:
+            # Remove feature_names_in_ if it exists (when refitting with array after DataFrame)
+            if hasattr(self, 'feature_names_in_'):
+                delattr(self, 'feature_names_in_')
 
         return self
 
