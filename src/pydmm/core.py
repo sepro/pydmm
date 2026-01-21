@@ -209,9 +209,13 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
 
         return X_array, sample_names, feature_names
 
-    def _compute_dirichlet_log_likelihood(self, X: np.ndarray, alpha: np.ndarray) -> np.ndarray:
+    def _compute_dirichlet_multinomial_log_likelihood(self, X: np.ndarray, alpha: np.ndarray) -> np.ndarray:
         """
-        Compute log-likelihood of samples under Dirichlet distribution.
+        Compute log-likelihood of samples under Dirichlet-multinomial distribution.
+
+        This matches the C code's neg_log_evidence_i function, computing the
+        compound distribution that arises from drawing probabilities from a
+        Dirichlet and then counts from a Multinomial.
 
         Parameters:
             X (np.ndarray): Count data of shape (n_samples, n_features)
@@ -220,21 +224,35 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
         Returns:
             np.ndarray: Log-likelihood for each sample of shape (n_samples,)
         """
-        # Convert counts to proportions, adding small pseudocount to avoid log(0)
-        pseudocount = 1e-10
-        proportions = X + pseudocount
-        proportions = proportions / proportions.sum(axis=1, keepdims=True)
+        n_samples = X.shape[0]
+        n_features = X.shape[1]
 
-        # Compute log-likelihood: log(B(alpha)) + sum((alpha_i - 1) * log(x_i))
-        # where B(alpha) is the multivariate beta function
+        # Pre-compute gamma values that don't depend on samples
+        # log B(alpha) = sum(log Gamma(alpha_i)) - log Gamma(sum(alpha_i))
+        log_beta_alpha = np.sum(gammaln(alpha)) - gammaln(np.sum(alpha))
 
-        # Log of multivariate beta function: sum(gammaln(alpha_i)) - gammaln(sum(alpha_i))
-        log_beta = np.sum(gammaln(alpha)) - gammaln(np.sum(alpha))
+        # For each sample, compute the log likelihood
+        log_likelihoods = np.zeros(n_samples)
 
-        # For each sample: sum((alpha_i - 1) * log(x_i))
-        log_likelihood_terms = np.sum((alpha - 1) * np.log(proportions), axis=1)
+        for i in range(n_samples):
+            counts = X[i, :]
 
-        return log_likelihood_terms - log_beta
+            # Compute alpha + counts for this sample
+            alpha_plus_counts = alpha + counts
+
+            # log B(alpha + counts) = sum(log Gamma(alpha_i + x_i)) - log Gamma(sum(alpha_i + x_i))
+            log_beta_alpha_plus_counts = (
+                np.sum(gammaln(alpha_plus_counts)) -
+                gammaln(np.sum(alpha_plus_counts))
+            )
+
+            # The log likelihood is: log B(alpha + counts) - log B(alpha)
+            # Note: We're computing the negative of what C code calls "neg_log_evidence"
+            # C code: dLogE = -sum(lngamma(alpha+x)) + lngamma(sum(alpha+x)) + sum(lngamma(alpha)) - lngamma(sum(alpha))
+            # Python: log_likelihood = sum(lngamma(alpha+x)) - lngamma(sum(alpha+x)) - sum(lngamma(alpha)) + lngamma(sum(alpha))
+            log_likelihoods[i] = log_beta_alpha_plus_counts - log_beta_alpha
+
+        return log_likelihoods
 
     def fit(self, X: Union[np.ndarray, pd.DataFrame], y=None) -> 'DirichletMixture':
         """
@@ -320,7 +338,7 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
 
         for k in range(n_components):
             alpha_k = alpha_estimates[:, k]  # Parameters for component k
-            log_likelihood_k = self._compute_dirichlet_log_likelihood(X_array, alpha_k)
+            log_likelihood_k = self._compute_dirichlet_multinomial_log_likelihood(X_array, alpha_k)
             log_responsibilities[:, k] = log_likelihood_k + np.log(mixture_weights[k])
 
         # Normalize to get probabilities (subtract max for numerical stability)

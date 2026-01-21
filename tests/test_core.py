@@ -201,6 +201,41 @@ class TestDirichletMixture:
         expected_labels_new = np.argmax(proba_new, axis=1)
         np.testing.assert_array_equal(labels_new, expected_labels_new)
 
+    def test_predict_matches_c_code_assignments_on_training_data(self):
+        """
+        Test that predict() on training data matches the C code's group assignments.
+
+        This is a regression test for the bug where the Python predict_proba() was
+        using the Dirichlet distribution instead of the Dirichlet-multinomial distribution,
+        causing predictions to differ from the fitted assignments.
+        """
+        dmm = DirichletMixture(n_components=2, verbose=False, random_state=42)
+        dmm.fit(self.data_array)
+
+        # Get assignments from C code (computed during fitting)
+        c_assignments = dmm.result_.get_best_component()
+        c_probabilities = dmm.result_.group_assignments
+
+        # Get assignments from Python predict() on same training data
+        predict_assignments = dmm.predict(self.data_array)
+        predict_probabilities = dmm.predict_proba(self.data_array)
+
+        # Assignments should match exactly
+        np.testing.assert_array_equal(
+            c_assignments,
+            predict_assignments,
+            err_msg="Class assignments from C code and predict() should match on training data"
+        )
+
+        # Probabilities should be very close (allowing for minor numerical differences)
+        np.testing.assert_allclose(
+            c_probabilities,
+            predict_probabilities,
+            rtol=1e-5,
+            atol=1e-8,
+            err_msg="Probabilities from C code and predict_proba() should match closely on training data"
+        )
+
     def test_predict_with_optional_y_parameter(self):
         """Test predict method accepts optional y parameter for API consistency"""
         dmm = DirichletMixture(n_components=2, verbose=False, random_state=42)
