@@ -1,6 +1,6 @@
 [build-system]
 requires = [
-    "setuptools>=45",
+    "setuptools>=64.0.0",
     "wheel",
     "numpy>=1.19.0"
 ]
@@ -24,6 +24,10 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: GNU Lesser General Public License v3 or later (LGPLv3+)",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -38,8 +42,18 @@ dev = [
     "pytest",
     "pytest-cov",
 ]
+test = [
+    "pytest>=6.0",
+    "pytest-cov>=2.10",
+]
 
 [project.urls]
 Homepage = "https://github.com/sepro/pydmm"
 Repository = "https://github.com/sepro/pydmm"
 Issues = "https://github.com/sepro/pydmm/issues"
+
+[tool.setuptools]
+zip-safe = false
+
+[tool.setuptools.packages.find]
+where = ["src"]
