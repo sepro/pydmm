@@ -189,3 +189,5 @@ CLAUDE.md
 .devcontainer/
 example_*.py
 debug_*.py
+
+tmp/
