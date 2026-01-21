@@ -25,7 +25,7 @@ ext_modules = [
 
 setup(
     name='pydmm',
-    version='0.1.0',
+    version='0.2.1',
     description='Python wrapper for Dirichlet Mixture Model fitting',
     long_description="""
     pyDMM provides a Python interface to a C implementation of Dirichlet Mixture
