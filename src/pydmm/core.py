@@ -319,7 +319,7 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
         self.fit(X)
         return self.result_.get_best_component()
 
-    def predict_proba(self, X: Union[np.ndarray, pd.DataFrame]) -> np.ndarray:
+    def predict_proba(self, X: Union[np.ndarray, pd.DataFrame]) -> Union[np.ndarray, pd.DataFrame]:
         """
         Predict component probabilities for new data.
 
@@ -327,7 +327,8 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
             X (array-like): Input count data of shape (n_samples, n_features)
 
         Returns:
-            np.ndarray: Component probabilities for each sample
+            np.ndarray or pd.DataFrame: Component probabilities for each sample.
+                If component_labels is set, returns a DataFrame with labeled columns.
         """
         if not self.is_fitted:
             raise ValueError("Model must be fitted before making predictions")
@@ -356,6 +357,11 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
         responsibilities = np.exp(log_responsibilities)
         responsibilities /= np.sum(responsibilities, axis=1, keepdims=True)
 
+        # Return DataFrame with labeled columns if component_labels is set
+        if self.result_.component_labels is not None:
+            columns = [f"{self.result_.component_labels[i]} component" for i in range(n_components)]
+            return pd.DataFrame(responsibilities, columns=columns)
+
         return responsibilities
 
     def predict(self, X: Union[np.ndarray, pd.DataFrame], y=None) -> np.ndarray:
@@ -367,14 +373,25 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
             y (ignored): Not used, present here for API consistency by convention
 
         Returns:
-            np.ndarray: Predicted component labels for each sample
+            np.ndarray: Predicted component labels for each sample.
+                If component_labels is set, returns an array of string labels.
         """
         if not self.is_fitted:
             raise ValueError("Model must be fitted before making predictions")
 
-        # Get probabilities and return the most likely component
         probabilities = self.predict_proba(X)
-        return np.argmax(probabilities, axis=1)
+
+        # Handle DataFrame return from predict_proba when labels are set
+        if isinstance(probabilities, pd.DataFrame):
+            probabilities = probabilities.values
+
+        component_indices = np.argmax(probabilities, axis=1)
+
+        # Map to labels if component_labels is set
+        if self.result_.component_labels is not None:
+            return np.array([self.result_.component_labels[idx] for idx in component_indices])
+
+        return component_indices
 
     def score(self, X: Union[np.ndarray, pd.DataFrame]) -> float:
         """
