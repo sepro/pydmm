@@ -618,3 +618,45 @@ class TestComponentLabeling:
         # Verify get_group_assignments_df uses labels in column names
         df = dmm.result.get_group_assignments_df()
         assert list(df.columns) == ['Healthy component', 'Diseased component', 'Control component']
+
+    def test_predict_and_predict_proba_with_labels(self):
+        """Test that predict() and predict_proba() use labels when set"""
+        # Test without labels first
+        pred_unlabeled = self.dmm.predict(self.data)
+        proba_unlabeled = self.dmm.predict_proba(self.data)
+
+        # predict should return integer array
+        assert isinstance(pred_unlabeled, np.ndarray)
+        assert pred_unlabeled.dtype in [np.int32, np.int64, np.intp]
+        assert len(pred_unlabeled) == len(self.data)
+        assert all(comp in [0, 1, 2] for comp in pred_unlabeled)
+
+        # predict_proba should return numpy array
+        assert isinstance(proba_unlabeled, np.ndarray)
+        assert proba_unlabeled.shape == (len(self.data), 3)
+
+        # Set labels
+        labels = {0: 'Healthy', 1: 'Diseased', 2: 'Control'}
+        self.result.set_component_labels(labels)
+
+        # Test with labels
+        pred_labeled = self.dmm.predict(self.data)
+        proba_labeled = self.dmm.predict_proba(self.data)
+
+        # predict should return string array with labels
+        assert isinstance(pred_labeled, np.ndarray)
+        assert pred_labeled.dtype.kind in ['U', 'S', 'O']  # Unicode, byte string, or object
+        assert len(pred_labeled) == len(self.data)
+        assert all(comp in ['Healthy', 'Diseased', 'Control'] for comp in pred_labeled)
+
+        # predict_proba should return DataFrame with labeled columns
+        assert isinstance(proba_labeled, pd.DataFrame)
+        assert list(proba_labeled.columns) == ['Healthy component', 'Diseased component', 'Control component']
+        assert proba_labeled.shape == (len(self.data), 3)
+
+        # Verify the underlying probabilities are the same
+        np.testing.assert_array_almost_equal(proba_unlabeled, proba_labeled.values)
+
+        # Verify predict results map correctly to unlabeled results
+        for unlabeled, labeled in zip(pred_unlabeled, pred_labeled):
+            assert labeled == labels[unlabeled]

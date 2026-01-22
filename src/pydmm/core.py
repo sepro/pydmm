@@ -167,6 +167,7 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
         is_fitted (bool): Whether the model has been fitted
         result_ (DirichletMixtureResult): Fitting results (available after fit)
         classes_ (np.ndarray): Cluster labels (available after fit)
+        feature_names_in_ (np.ndarray): Names of features seen during fit (available after fit with DataFrame)
     """
 
     def __init__(self, n_components: int = 2, verbose: bool = False,
@@ -295,6 +296,14 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
         # Set classes_ attribute for sklearn ClassifierMixin compatibility
         self.classes_ = np.arange(self.n_components)
 
+        # Set feature_names_in_ attribute for sklearn compatibility
+        if feature_names is not None:
+            self.feature_names_in_ = np.asarray(feature_names, dtype=object)
+        else:
+            # Remove feature_names_in_ if it exists (when refitting with array after DataFrame)
+            if hasattr(self, 'feature_names_in_'):
+                delattr(self, 'feature_names_in_')
+
         return self
 
     def fit_predict(self, X: Union[np.ndarray, pd.DataFrame]) -> np.ndarray:
@@ -310,7 +319,7 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
         self.fit(X)
         return self.result_.get_best_component()
 
-    def predict_proba(self, X: Union[np.ndarray, pd.DataFrame]) -> np.ndarray:
+    def predict_proba(self, X: Union[np.ndarray, pd.DataFrame]) -> Union[np.ndarray, pd.DataFrame]:
         """
         Predict component probabilities for new data.
 
@@ -318,7 +327,8 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
             X (array-like): Input count data of shape (n_samples, n_features)
 
         Returns:
-            np.ndarray: Component probabilities for each sample
+            np.ndarray or pd.DataFrame: Component probabilities for each sample.
+                If component_labels is set, returns a DataFrame with labeled columns.
         """
         if not self.is_fitted:
             raise ValueError("Model must be fitted before making predictions")
@@ -347,6 +357,11 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
         responsibilities = np.exp(log_responsibilities)
         responsibilities /= np.sum(responsibilities, axis=1, keepdims=True)
 
+        # Return DataFrame with labeled columns if component_labels is set
+        if self.result_.component_labels is not None:
+            columns = [f"{self.result_.component_labels[i]} component" for i in range(n_components)]
+            return pd.DataFrame(responsibilities, columns=columns)
+
         return responsibilities
 
     def predict(self, X: Union[np.ndarray, pd.DataFrame], y=None) -> np.ndarray:
@@ -358,14 +373,25 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
             y (ignored): Not used, present here for API consistency by convention
 
         Returns:
-            np.ndarray: Predicted component labels for each sample
+            np.ndarray: Predicted component labels for each sample.
+                If component_labels is set, returns an array of string labels.
         """
         if not self.is_fitted:
             raise ValueError("Model must be fitted before making predictions")
 
-        # Get probabilities and return the most likely component
         probabilities = self.predict_proba(X)
-        return np.argmax(probabilities, axis=1)
+
+        # Handle DataFrame return from predict_proba when labels are set
+        if isinstance(probabilities, pd.DataFrame):
+            probabilities = probabilities.values
+
+        component_indices = np.argmax(probabilities, axis=1)
+
+        # Map to labels if component_labels is set
+        if self.result_.component_labels is not None:
+            return np.array([self.result_.component_labels[idx] for idx in component_indices])
+
+        return component_indices
 
     def score(self, X: Union[np.ndarray, pd.DataFrame]) -> float:
         """
