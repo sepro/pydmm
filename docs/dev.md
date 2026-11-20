@@ -61,9 +61,15 @@ pytest tests/test_c_extension.py
 
 ## Code Architecture
 
-- **`src/pydmm/core.py`**: Main Python interface and result handling
-- **`src/pydmm/wrapper.c`**: NumPy C API wrapper with data layout conversion
-- **`src/pydmm/dirichlet_fit_standalone.c`**: Core C implementation with GSL
+- **`src/pydmm/core.py`**: Main Python interface and result handling (`DirichletMixture`)
+- **`src/pydmm/dtmm.py`**: Dirichlet-tree mixture (`DirichletTreeMixture`), subclass of `DirichletMixture`
+- **`src/pydmm/tree.py`**: `Tree` (features as leaves; CSR child lists in post-order, as the C core expects)
+- **`src/pydmm/calibration.py`**: Tempered assignment probabilities (`temperature`)
+- **`src/pydmm/waic.py`**: WAIC for the DMM
+- **`src/pydmm/wrapper.c`**: NumPy C API wrapper with data layout conversion (`dirichlet_fit`, `dirichlet_tree_fit`)
+- **`src/pydmm/dirichlet_fit_standalone.c`**: DMM EM, likelihood and criteria
+- **`src/pydmm/dirichlet_node.c`**: Routines shared by both models: soft k-means initialisation, weighted Dirichlet-multinomial fit (BFGS) and its Hessian
+- **`src/pydmm/dirichlet_tree_fit.c`**: DTMM EM over tree nodes, node selection, criteria
 - **`setup.py`**: Build configuration for C extension
 - **`tests/`**: Comprehensive test suite
 

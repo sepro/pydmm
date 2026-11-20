@@ -1,6 +1,8 @@
 #include <Python.h>
 #include <numpy/arrayobject.h>
+#include <string.h>
 #include "dirichlet_fit_standalone.h"
+#include "dirichlet_tree_fit.h"
 
 static PyObject *dirichlet_fit_py(PyObject *self, PyObject *args, PyObject *kwargs)
 {
@@ -230,6 +232,215 @@ static PyObject *dirichlet_fit_py(PyObject *self, PyObject *args, PyObject *kwar
     return result;
 }
 
+/* Wrap a C array of doubles laid out [k * M + m] as a NumPy (M, K) array */
+static PyObject *km_to_mk_array(const double *adSrc, int K, int M)
+{
+    npy_intp dims[2] = {M, K};
+    PyArrayObject *array = (PyArrayObject *)PyArray_SimpleNew(2, dims, NPY_DOUBLE);
+    if (!array)
+        return NULL;
+    double *adDst = (double *)PyArray_DATA(array);
+    for (int m = 0; m < M; m++)
+        for (int k = 0; k < K; k++)
+            adDst[m * K + k] = adSrc[k * M + m];
+    return (PyObject *)array;
+}
+
+static int check_tree(const int *anChildStart, int nNodes, const int *anChild,
+                      int nEdges, int S)
+{
+    if (nNodes < 1 || anChildStart[0] != 0 || anChildStart[nNodes] != nEdges) {
+        PyErr_SetString(PyExc_ValueError, "child_start must start at 0 and end at len(child)");
+        return 0;
+    }
+    int *anSeen = (int *)calloc(S + nNodes, sizeof(int));
+    if (!anSeen) {
+        PyErr_NoMemory();
+        return 0;
+    }
+    int ok = 1;
+    for (int u = 0; u < nNodes && ok; u++) {
+        if (anChildStart[u + 1] - anChildStart[u] < 2) {
+            PyErr_SetString(PyExc_ValueError, "every internal node needs at least 2 children");
+            ok = 0;
+            break;
+        }
+        for (int e = anChildStart[u]; e < anChildStart[u + 1]; e++) {
+            const int c = anChild[e];
+            /* children must be leaves or earlier internal nodes (post-order) */
+            if (c < 0 || c >= S + u || anSeen[c]) {
+                PyErr_SetString(PyExc_ValueError,
+                                "child ids must be leaves or earlier nodes, each used once");
+                ok = 0;
+                break;
+            }
+            anSeen[c] = 1;
+        }
+    }
+    for (int j = 0; j < S + nNodes - 1 && ok; j++)
+        if (!anSeen[j]) {
+            PyErr_SetString(PyExc_ValueError,
+                            "every leaf and non-root node must have a parent");
+            ok = 0;
+        }
+    free(anSeen);
+    return ok;
+}
+
+static PyObject *dirichlet_tree_fit_py(PyObject *self, PyObject *args, PyObject *kwargs)
+{
+    PyArrayObject *counts_array = NULL, *start_array = NULL, *child_array = NULL;
+    int n_components = 2;
+    int verbose = 0;
+    int seed = 42;
+    int node_selection = 1;
+
+    static char *kwlist[] = {"counts", "child_start", "child", "n_components",
+                             "verbose", "seed", "node_selection", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O!O!O!|iiip", kwlist,
+                                     &PyArray_Type, &counts_array,
+                                     &PyArray_Type, &start_array,
+                                     &PyArray_Type, &child_array,
+                                     &n_components, &verbose, &seed,
+                                     &node_selection)) {
+        return NULL;
+    }
+
+    if (PyArray_NDIM(counts_array) != 2 || PyArray_TYPE(counts_array) != NPY_INT32) {
+        PyErr_SetString(PyExc_ValueError, "counts must be a 2-dimensional int32 array");
+        return NULL;
+    }
+    if (PyArray_NDIM(start_array) != 1 || PyArray_TYPE(start_array) != NPY_INT32 ||
+        PyArray_NDIM(child_array) != 1 || PyArray_TYPE(child_array) != NPY_INT32) {
+        PyErr_SetString(PyExc_ValueError, "child_start and child must be 1-dimensional int32 arrays");
+        return NULL;
+    }
+
+    npy_intp *dims = PyArray_DIMS(counts_array);
+    int N = dims[0];
+    int S = dims[1];
+    int K = n_components;
+    int nNodes = (int)PyArray_DIM(start_array, 0) - 1;
+    int E = (int)PyArray_DIM(child_array, 0);
+
+    if (N <= 0 || S <= 0 || K <= 0) {
+        PyErr_SetString(PyExc_ValueError, "Array dimensions and n_components must be positive");
+        return NULL;
+    }
+
+    PyArrayObject *start_c = (PyArrayObject *)PyArray_ContiguousFromAny(
+        (PyObject *)start_array, NPY_INT32, 1, 1);
+    PyArrayObject *child_c = (PyArrayObject *)PyArray_ContiguousFromAny(
+        (PyObject *)child_array, NPY_INT32, 1, 1);
+    if (!start_c || !child_c) {
+        Py_XDECREF(start_c);
+        Py_XDECREF(child_c);
+        return NULL;
+    }
+    if (!check_tree((int *)PyArray_DATA(start_c), nNodes,
+                    (int *)PyArray_DATA(child_c), E, S)) {
+        Py_DECREF(start_c);
+        Py_DECREF(child_c);
+        return NULL;
+    }
+
+    // Column-major copy of the counts (features x samples), as for the DMM
+    PyArrayObject *counts_transposed = (PyArrayObject *)PyArray_Transpose(counts_array, NULL);
+    PyArrayObject *counts_contiguous = counts_transposed ? (PyArrayObject *)PyArray_ContiguousFromAny(
+        (PyObject *)counts_transposed, NPY_INT32, 2, 2) : NULL;
+    Py_XDECREF(counts_transposed);
+    if (!counts_contiguous) {
+        Py_DECREF(start_c);
+        Py_DECREF(child_c);
+        PyErr_SetString(PyExc_RuntimeError, "Failed to create contiguous transposed array");
+        return NULL;
+    }
+
+    struct tree_data_t data;
+    data.verbose = verbose;
+    data.N = N;
+    data.S = S;
+    data.K = K;
+    data.aanX = (int *)PyArray_DATA(counts_contiguous);
+    data.nNodes = nNodes;
+    data.anChildStart = (int *)PyArray_DATA(start_c);
+    data.anChild = (int *)PyArray_DATA(child_c);
+    data.bSelect = node_selection;
+
+    data.group = (double *)malloc((size_t)N * K * sizeof(double));
+    data.mixture_wt = (double *)malloc(K * sizeof(double));
+    data.node_shared = (int *)malloc(nNodes * sizeof(int));
+    data.fit_lower = (double *)malloc((size_t)E * K * sizeof(double));
+    data.fit_mpe = (double *)malloc((size_t)E * K * sizeof(double));
+    data.fit_upper = (double *)malloc((size_t)E * K * sizeof(double));
+
+    PyObject *result = NULL;
+    if (!data.group || !data.mixture_wt || !data.node_shared ||
+        !data.fit_lower || !data.fit_mpe || !data.fit_upper) {
+        PyErr_SetString(PyExc_MemoryError, "Failed to allocate output arrays");
+        goto cleanup;
+    }
+
+    dirichlet_tree_fit_main(&data, seed);
+
+    // Outputs: Group (N, K), Weight (K,), Fit/* (E, K), NodeShared (nNodes,)
+    PyObject *group_array = km_to_mk_array(data.group, K, N);
+    PyObject *lower_array = km_to_mk_array(data.fit_lower, K, E);
+    PyObject *mpe_array = km_to_mk_array(data.fit_mpe, K, E);
+    PyObject *upper_array = km_to_mk_array(data.fit_upper, K, E);
+    npy_intp k_dims[1] = {K}, node_dims[1] = {nNodes};
+    PyArrayObject *weight_array = (PyArrayObject *)PyArray_SimpleNew(1, k_dims, NPY_DOUBLE);
+    PyArrayObject *shared_array = (PyArrayObject *)PyArray_SimpleNew(1, node_dims, NPY_INT32);
+    if (!group_array || !lower_array || !mpe_array || !upper_array ||
+        !weight_array || !shared_array) {
+        Py_XDECREF(group_array); Py_XDECREF(lower_array);
+        Py_XDECREF(mpe_array); Py_XDECREF(upper_array);
+        Py_XDECREF(weight_array); Py_XDECREF(shared_array);
+        goto cleanup;
+    }
+    memcpy(PyArray_DATA(weight_array), data.mixture_wt, K * sizeof(double));
+    memcpy(PyArray_DATA(shared_array), data.node_shared, nNodes * sizeof(int));
+
+    result = PyDict_New();
+    PyObject *goodness_dict = PyDict_New();
+    PyObject *mixture_dict = PyDict_New();
+    PyObject *fit_dict = PyDict_New();
+    PyObject *values[] = {PyFloat_FromDouble(data.NLE), PyFloat_FromDouble(data.LogDet),
+                          PyFloat_FromDouble(data.fit_laplace), PyFloat_FromDouble(data.fit_bic),
+                          PyFloat_FromDouble(data.fit_aic), PyLong_FromLong(data.nSelectRounds)};
+    const char *names[] = {"NLE", "LogDet", "Laplace", "BIC", "AIC"};
+    for (int m = 0; m < 5; m++)
+        PyDict_SetItemString(goodness_dict, names[m], values[m]);
+    PyDict_SetItemString(result, "GoodnessOfFit", goodness_dict);
+    PyDict_SetItemString(result, "Group", group_array);
+    PyDict_SetItemString(mixture_dict, "Weight", (PyObject *)weight_array);
+    PyDict_SetItemString(result, "Mixture", mixture_dict);
+    PyDict_SetItemString(fit_dict, "Lower", lower_array);
+    PyDict_SetItemString(fit_dict, "Estimate", mpe_array);
+    PyDict_SetItemString(fit_dict, "Upper", upper_array);
+    PyDict_SetItemString(result, "Fit", fit_dict);
+    PyDict_SetItemString(result, "NodeShared", (PyObject *)shared_array);
+    PyDict_SetItemString(result, "SelectRounds", values[5]);
+    for (int m = 0; m < 6; m++)
+        Py_DECREF(values[m]);
+    Py_DECREF(goodness_dict); Py_DECREF(mixture_dict); Py_DECREF(fit_dict);
+    Py_DECREF(group_array); Py_DECREF(lower_array); Py_DECREF(mpe_array);
+    Py_DECREF(upper_array); Py_DECREF(weight_array); Py_DECREF(shared_array);
+
+cleanup:
+    free(data.group);
+    free(data.mixture_wt);
+    free(data.node_shared);
+    free(data.fit_lower);
+    free(data.fit_mpe);
+    free(data.fit_upper);
+    Py_DECREF(counts_contiguous);
+    Py_DECREF(start_c);
+    Py_DECREF(child_c);
+    return result;
+}
+
 static PyMethodDef module_methods[] = {
     {"dirichlet_fit", (PyCFunction)dirichlet_fit_py,
      METH_VARARGS | METH_KEYWORDS,
@@ -248,6 +459,27 @@ static PyMethodDef module_methods[] = {
      "      the negative log posterior w.r.t. log(alpha)\n\n"
      "Returns:\n"
      "  dict : Dictionary containing fit results"},
+    {"dirichlet_tree_fit", (PyCFunction)dirichlet_tree_fit_py,
+     METH_VARARGS | METH_KEYWORDS,
+     "Fit Dirichlet-tree multinomial mixture model to count data\n\n"
+     "Parameters:\n"
+     "  counts : array_like, shape (N, S), int32\n"
+     "      Count data with N samples and S features (the tree's leaves)\n"
+     "  child_start : array_like, shape (n_nodes + 1,), int32\n"
+     "  child : array_like, shape (n_edges,), int32\n"
+     "      Internal node u has children child[child_start[u]:child_start[u+1]];\n"
+     "      ids < S are leaves, S + u is internal node u. Children before\n"
+     "      parents; the root is the last node\n"
+     "  n_components : int, optional (default=2)\n"
+     "  verbose : int, optional (default=0)\n"
+     "  seed : int, optional (default=42)\n"
+     "  node_selection : bool, optional (default=True)\n"
+     "      Share a node's parameters across components unless that loses\n"
+     "      more than a BIC penalty\n\n"
+     "Returns:\n"
+     "  dict : GoodnessOfFit, Group (N, K), Mixture/Weight (K,),\n"
+     "      Fit/Lower|Estimate|Upper (n_edges, K), NodeShared (n_nodes,),\n"
+     "      SelectRounds"},
     {NULL, NULL, 0, NULL}
 };
 

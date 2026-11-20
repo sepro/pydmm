@@ -24,10 +24,25 @@ A Rust port exists on the `rust` branch but was slower than the C core; `main` s
   weight-of-evidence condition (calibrated normal LLR: var = 2·mean), pooled over
   component pairs. Corrects over-confidence from correlated features and from the
   Dirichlet's fixed per-feature variance; cannot repair a wrong partition.
+- **Dirichlet-tree mixture** (`src/pydmm/dtmm.py`, `src/pydmm/tree.py`):
+  `DirichletTreeMixture` subclasses `DirichletMixture` (reuses input validation,
+  `predict`, `fit_predict`, `score`). Each internal node of a `Tree` over the features
+  splits its count with its own DM; star tree + `node_selection=False` == DMM (tested).
+  Node selection (default on, it is a new model): a node stays component-specific
+  only if its expected log-likelihood gain beats 0.5·log N·(K−1)·n_children, otherwise
+  one α is shared and the node drops out of the E-step. `tree=None` builds
+  `Tree.from_correlation` (average linkage on 1 − corr(CLR)). `Tree` stores CSR child
+  lists in post-order (ids < S leaves, S+u internal node u, root last); unary nodes
+  are collapsed. No WAIC for the DTMM yet.
 - **C Extension**:
   - `src/pydmm/wrapper.c`: Python C API wrapper exposing `pydmm_core.dirichlet_fit`
-  - `src/pydmm/dirichlet_fit_standalone.c/.h`: EM algorithm, k-means init, BFGS
-    optimisation, Hessian, BIC/AIC/Laplace (the code that is compiled)
+    and `pydmm_core.dirichlet_tree_fit` (validates the tree before fitting)
+  - `src/pydmm/dirichlet_fit_standalone.c/.h`: DMM EM, likelihood, BIC/AIC/Laplace
+  - `src/pydmm/dirichlet_node.c/.h`: shared by both models: soft k-means, weighted
+    DM objective/gradient, BFGS (`optimise_lambda_k`), `neg_log_evidence_i`, `hessian`.
+    Moved unchanged from the DMM file; DMM output is bit-identical to before.
+  - `src/pydmm/dirichlet_tree_fit.c/.h`: DTMM EM (per-node `data_t` views), node
+    selection rounds, block-diagonal Hessian, criteria. `Fit/*` outputs are `(n_edges, K)`.
   - `src/pydmm/dirichlet_fit_main.c/.h`: original R-package version, not compiled
 - **Build System**: `setup.py` defines the C extension (links `gsl`, `gslcblas`, `m`); metadata in `pyproject.toml`
 
@@ -72,6 +87,14 @@ venv/bin/python validation/correlation/experiment.py    # over-confidence vs cor
 venv/bin/python validation/correlation/tempered_em.py   # tempered assignments vs tempered EM (needs the patch in that dir)
 ```
 
+### Dirichlet-tree mixture (`validation/dtmm/`)
+```bash
+OMP_NUM_THREADS=1 venv/bin/python validation/dtmm/compare.py     # DMM vs DTMM on synthetic data
+OMP_NUM_THREADS=1 venv/bin/python validation/dtmm/benchmark.py   # runtime (run alone)
+```
+`validation/dtmm/reference.py` is a NumPy reference implementation (prototype and oracle).
+Write-up: `docs/dtmm_comparison.md`.
+
 ### WAIC validation (`validation/waic/`)
 ```bash
 python validation/waic/generate_data.py            # comparison dataset
@@ -98,6 +121,7 @@ validation/waic/.venv-prodiphy/bin/python validation/waic/make_fixtures.py   # t
 - **`test_c_extension.py`**: C extension integration, memory management, data layout handling
 - **`test_model_selection.py`**: BIC/AIC model selection, overclustering detection
 - **`test_sklearn_compatibility.py`**: scikit-learn API conformance
+- **`test_dtmm.py`**: `Tree` builders, C tree fit (star == DMM, NLE vs Python likelihood, invalid trees), node selection, `DirichletTreeMixture` API and sklearn compatibility
 - **`test_calibration.py`**: tempered assignments, `temperature="auto"` estimator, default path unchanged
 - **`test_waic.py`**: Hessian export, pointwise log-likelihood vs PyMC, WAIC vs arviz, prodiphy draws through pyDMM code (reference values in `tests/data/waic/`)
 - **`conftest.py`**: Shared test fixtures

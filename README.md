@@ -4,6 +4,8 @@
 
 pyDMM provides a Python interface to a C implementation of Dirichlet Mixture Model fitting for compositional data analysis. It's particularly useful for analyzing microbiome data and other count-based compositional datasets.
 
+This includes a few experimental features like WAIC instead of the BIC, calibrating assignent probabilities and a Dirichlet Tree Mixtured model implementation which were not included in the original. Futhermore, this package is compatible with scikit-learn.
+
 ## Features
 
 - **High-performance C implementation** using GSL (GNU Scientific Library)
@@ -15,6 +17,7 @@ pyDMM provides a Python interface to a C implementation of Dirichlet Mixture Mod
 - **Standard sklearn API** with `fit()`, `predict()`, `predict_proba()`, and `fit_predict()` methods
 - **Pandas DataFrame integration** with preserved sample and feature names
 - **Comprehensive model diagnostics** including BIC, AIC, optional WAIC, and parameter estimates
+- **Dirichlet-tree mixtures** (`DirichletTreeMixture`) for taxa that vary together along a taxonomy or a tree built from the data
 - **Automatic model selection** using information criteria
 - **Label-invariant clustering evaluation** for proper unsupervised assessment
 
@@ -155,6 +158,32 @@ dmm.predict_proba(new_data)                   # tempered with the same tau
 
 Tempering changes only the probabilities. The fitted α and weights, NLE, BIC, AIC and WAIC, and each sample's most likely component stay exactly as without it. It cannot repair a wrong partition, only report it with less confidence. A τ well below 1 on your data also tells you how strongly the features overlap in what they say. See `validation/correlation/` for the simulations.
 
+## Dirichlet-Tree Mixtures
+
+`DirichletTreeMixture` replaces each component's Dirichlet with a Dirichlet-tree: every internal node of a tree over the features splits its count over its children with its own Dirichlet-multinomial (Dennis, 1991; Wang & Zhao, 2017; Mao & Ma, 2022). Taxa in one clade can then rise and fall together, and every split has its own dispersion. In the DMM, features can only be negatively correlated and one precision fixes how much every feature varies, which makes its assignment probabilities over-confident when groups of taxa bloom together.
+
+```python
+import pandas as pd
+from pydmm import DirichletTreeMixture, Tree
+
+# taxonomy: one row per feature (same names as the count columns), ranks from top to bottom
+taxonomy = pd.DataFrame({"Family": [...], "Genus": [...]}, index=counts.columns)
+tree = Tree.from_taxonomy(taxonomy)
+
+dtmm = DirichletTreeMixture(n_components=3, tree=tree, random_state=42).fit(counts)
+dtmm.predict_proba(counts)
+dtmm.result_.differential_nodes()          # clades whose composition separates the clusters
+dtmm.result_.goodness_of_fit["BIC"]        # same scale as DirichletMixture's BIC
+
+DirichletTreeMixture(n_components=3).fit(counts)   # no tree: built from feature correlations
+```
+
+Trees can also come from a SciPy linkage matrix (`Tree.from_linkage`), a parent array (`Tree.from_parents`) or `Tree.from_correlation(X)`. With `Tree.star(n_features)` and `node_selection=False` the model is exactly the DMM.
+
+By default only nodes whose parameters differ enough between clusters to pay a BIC penalty are fitted per cluster (`node_selection=True`); the others are shared and do not influence the assignments. This matters: without it, nodes that do not differ add noise and the DTMM clusters less accurately than the DMM. `temperature` works as for `DirichletMixture`. WAIC is not available for the DTMM yet.
+
+In simulations (`docs/dtmm_comparison.md`), with the true tree the DTMM's probabilities matched an oracle that knows the generating parameters (log-loss 0.41 vs 1.45 for the DMM) when whole clades bloomed together, and with the default data-built tree it removed the DMM's wrong splits on data where features differ in variability (accuracy 0.945 vs 0.896). It was worse than the DMM when strongly correlated modules dominated, even though BIC preferred it, so compare both models on your data. A fit takes about 1.5× as long as a DMM fit with a taxonomy-like tree and about 2.7× with the default data-built tree.
+
 ## Working with Pandas DataFrames
 
 ```python
@@ -259,6 +288,28 @@ Inherits from `sklearn.base.BaseEstimator` and `sklearn.base.ClassifierMixin` fo
 - `classes_`: Array of cluster labels [0, 1, ..., n_components-1]
 - `is_fitted`: Boolean indicating if the model has been fitted
 
+### DirichletTreeMixture
+
+Subclass of `DirichletMixture`, with the same methods and attributes.
+
+**Parameters:**
+- `n_components` (int): Number of mixture components (default: 2)
+- `tree` (`Tree` or None): Tree over the features; None builds one from the data with `Tree.from_correlation` (default: None). Leaves are matched to DataFrame columns by name when the tree has leaf names
+- `node_selection` (bool): Share each node's parameters across components unless they differ enough to pay a BIC penalty (default: True)
+- `verbose` (bool): Print fitting progress (default: False)
+- `random_state` (int): Random seed for reproducibility (default: 42)
+- `temperature` (None, float or "auto"): Temper the assignment probabilities (default: None, off)
+
+**Attributes (after fitting):** `result_` (`DirichletTreeMixtureResult`), `tree_` (the tree used, leaves in the data's column order), `classes_`, `feature_names_in_`, `temperature_`
+
+### DirichletTreeMixtureResult
+
+As `DirichletMixtureResult`, with `parameter_estimates` per tree edge (shape `(n_edges, n_components)`), plus `tree`, `node_shared` (bool per internal node), `differential_nodes()` and `get_parameter_estimates_df()` indexed by (parent, child).
+
+### Tree
+
+Build with `Tree.from_taxonomy(df)`, `Tree.from_linkage(Z)`, `Tree.from_parents(parents, n_leaves)`, `Tree.from_correlation(X)` or `Tree.star(n_leaves)`. Internal nodes with one child are removed. Useful methods: `leaves(u)`, `children(u)`, `node_counts(X)`, `reorder(feature_names)`, `edge_index()`.
+
 ### DirichletMixtureResult
 
 **Attributes:**
@@ -316,6 +367,14 @@ This package is based on the R package [DirichletMultinomial](https://github.com
 
 These sources have been instrumental in the development of pyDMM, providing both the theoretical foundation and reference implementation.
 
+The Dirichlet-tree mixture (`DirichletTreeMixture`) builds on:
+
+> Dennis, S. Y. (1991). On the hyper-Dirichlet type 1 and hyper-Liouville distributions. Communications in Statistics – Theory and Methods, 20(12), 4069–4081. https://doi.org/10.1080/03610929108830757
+
+> Wang, T., & Zhao, H. (2017). A Dirichlet-tree multinomial regression model for associating dietary nutrients with gut microorganisms. Biometrics, 73(3), 792–801. https://doi.org/10.1111/biom.12654
+
+> Mao, J., & Ma, L. (2022). Dirichlet-tree multinomial mixtures for clustering microbiome compositions. The Annals of Applied Statistics, 16(3), 1476–1499. https://doi.org/10.1214/21-AOAS1552
+
 ## Citation
 
 If you use pyDMM in your research, please cite:
@@ -337,6 +396,43 @@ Additionally, please consider citing the original publication:
   year={2012},
   publisher={Public Library of Science},
   doi={10.1371/journal.pone.0030126}
+}
+```
+
+If you use `DirichletTreeMixture`, please also cite:
+
+```bibtex
+@article{dennis1991hyper,
+  title={On the hyper-Dirichlet type 1 and hyper-Liouville distributions},
+  author={Dennis, Samuel Y.},
+  journal={Communications in Statistics - Theory and Methods},
+  volume={20},
+  number={12},
+  pages={4069--4081},
+  year={1991},
+  doi={10.1080/03610929108830757}
+}
+
+@article{wang2017dirichlet,
+  title={A Dirichlet-tree multinomial regression model for associating dietary nutrients with gut microorganisms},
+  author={Wang, Tao and Zhao, Hongyu},
+  journal={Biometrics},
+  volume={73},
+  number={3},
+  pages={792--801},
+  year={2017},
+  doi={10.1111/biom.12654}
+}
+
+@article{mao2022dirichlet,
+  title={Dirichlet-tree multinomial mixtures for clustering microbiome compositions},
+  author={Mao, Jialiang and Ma, Li},
+  journal={The Annals of Applied Statistics},
+  volume={16},
+  number={3},
+  pages={1476--1499},
+  year={2022},
+  doi={10.1214/21-AOAS1552}
 }
 ```
 

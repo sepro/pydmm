@@ -6,6 +6,8 @@ Dirichlet Mixture Model fitting for compositional data.
 """
 
 from .core import DirichletMixture
+from .dtmm import DirichletTreeMixture
+from .tree import Tree
 
 __version__ = "0.1.0"
-__all__ = ["DirichletMixture"]
+__all__ = ["DirichletMixture", "DirichletTreeMixture", "Tree"]

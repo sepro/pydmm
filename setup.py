@@ -11,7 +11,9 @@ ext_modules = [
         'pydmm.pydmm_core',
         sources=[
             'src/pydmm/wrapper.c',
-            'src/pydmm/dirichlet_fit_standalone.c'
+            'src/pydmm/dirichlet_fit_standalone.c',
+            'src/pydmm/dirichlet_node.c',
+            'src/pydmm/dirichlet_tree_fit.c'
         ],
         include_dirs=[
             np.get_include(),
