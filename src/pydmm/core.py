@@ -10,6 +10,8 @@ from scipy.special import gammaln
 from sklearn.base import BaseEstimator, ClassifierMixin
 
 from .waic import compute_waic
+from .calibration import (component_log_likelihood, estimate_temperature,
+                          tempered_responsibilities, validate_temperature)
 
 try:
     from . import pydmm_core
@@ -35,6 +37,12 @@ class DirichletMixtureResult:
         pointwise_log_likelihood (np.ndarray or None): Log-likelihood of each
             sample under each posterior draw, shape (n_draws, n_samples).
             Only set when the model was fitted with ``compute_waic=True``.
+        temperature (float or None): Tempering factor applied to
+            ``group_assignments``. None when the model was fitted without
+            ``temperature`` (the default).
+        group_assignments_untempered (np.ndarray or None): The usual EM
+            responsibilities. Only set when tempering was applied, in which case
+            ``group_assignments`` holds the tempered probabilities.
     """
 
     def __init__(self, result_dict: Dict[str, Any], n_components: int,
@@ -52,6 +60,8 @@ class DirichletMixtureResult:
         self.feature_names = feature_names
         self.component_labels = None
         self.pointwise_log_likelihood = None
+        self.temperature = None
+        self.group_assignments_untempered = None
 
     def set_component_labels(self, labels: Dict[int, str]) -> None:
         """
@@ -154,6 +164,8 @@ class DirichletMixtureResult:
         }
         if "WAIC" in self.goodness_of_fit:
             out["WAIC"] = self.goodness_of_fit["WAIC"]
+        if self.temperature is not None:
+            out["temperature"] = self.temperature
         return out
 
 
@@ -176,6 +188,19 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
             posterior SD was capped) to ``result_.goodness_of_fit``. WAIC is on
             the same negative log-likelihood scale as BIC/AIC (lower is better).
         n_waic_draws (int): Number of posterior draws for WAIC (default: 1000)
+        temperature (None, float or "auto"): Temper the cluster assignment
+            probabilities to correct for over-confidence (default: None, off).
+            The usual responsibilities treat every feature as independent
+            evidence; correlated features and features that vary more than the
+            Dirichlet allows make them too close to 0 or 1. With a value tau in
+            (0, 1], assignments become z_ik ∝ (w_k * DM(x_i | alpha_k)) ** tau,
+            which keeps each sample's most likely component unchanged.
+            "auto" estimates tau from the fitted model without labels (Good's
+            weight-of-evidence condition, see ``pydmm.calibration``). Applies to
+            ``result_.group_assignments`` and ``predict_proba``; the fitted
+            parameters, NLE, BIC, AIC and WAIC are not changed, and the
+            untempered assignments stay in
+            ``result_.group_assignments_untempered``.
 
     Attributes:
         n_components (int): Number of mixture components
@@ -185,16 +210,19 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
         result_ (DirichletMixtureResult): Fitting results (available after fit)
         classes_ (np.ndarray): Cluster labels (available after fit)
         feature_names_in_ (np.ndarray): Names of features seen during fit (available after fit with DataFrame)
+        temperature_ (float or None): Tempering factor used (available after fit;
+            None when ``temperature`` is None)
     """
 
     def __init__(self, n_components: int = 2, verbose: bool = False,
                  random_state: int = 42, compute_waic: bool = False,
-                 n_waic_draws: int = 1000):
+                 n_waic_draws: int = 1000, temperature=None):
         self.n_components = n_components
         self.verbose = verbose
         self.random_state = random_state
         self.compute_waic = compute_waic
         self.n_waic_draws = n_waic_draws
+        self.temperature = temperature
         self.is_fitted = False
         self.result_ = None
 
@@ -296,6 +324,7 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
         if self.compute_waic and (not isinstance(self.n_waic_draws, (int, np.integer))
                                   or self.n_waic_draws < 2):
             raise ValueError("n_waic_draws must be an integer >= 2")
+        validate_temperature(self.temperature)
 
         # Call the C extension
         result_dict = pydmm_core.dirichlet_fit(
@@ -332,6 +361,10 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
             self.result_.goodness_of_fit["WAIC_n_regularised"] = waic["n_regularised"]
             self.result_.pointwise_log_likelihood = waic["log_likelihood"]
 
+        self.temperature_ = None
+        if self.temperature is not None:
+            self._apply_temperature(X_array)
+
         self.is_fitted = True
 
         # Set classes_ attribute for sklearn ClassifierMixin compatibility
@@ -346,6 +379,21 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
                 delattr(self, 'feature_names_in_')
 
         return self
+
+    def _apply_temperature(self, X_array: np.ndarray) -> None:
+        """Replace group_assignments by tempered ones (temperature is not None)."""
+        result = self.result_
+        alpha = result.parameter_estimates["Estimate"].T  # (K, S)
+        log_lik = component_log_likelihood(X_array, alpha)
+        if isinstance(self.temperature, str):  # "auto"
+            tau = estimate_temperature(log_lik, result.mixture_weights)
+        else:
+            tau = float(self.temperature)
+        result.group_assignments_untempered = result.group_assignments
+        result.group_assignments = tempered_responsibilities(
+            log_lik, result.mixture_weights, tau)
+        result.temperature = tau
+        self.temperature_ = tau
 
     def fit_predict(self, X: Union[np.ndarray, pd.DataFrame]) -> np.ndarray:
         """
@@ -391,6 +439,8 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
             alpha_k = alpha_estimates[:, k]  # Parameters for component k
             log_likelihood_k = self._compute_dirichlet_multinomial_log_likelihood(X_array, alpha_k)
             log_responsibilities[:, k] = log_likelihood_k + np.log(mixture_weights[k])
+            if getattr(self, "temperature_", None) is not None:
+                log_responsibilities[:, k] *= self.temperature_
 
         # Normalize to get probabilities (subtract max for numerical stability)
         max_log_resp = np.max(log_responsibilities, axis=1, keepdims=True)

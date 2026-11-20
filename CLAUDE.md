@@ -18,6 +18,12 @@ A Rust port exists on the `rust` branch but was slower than the C core; `main` s
   directions regularised to SD <= 1), pointwise Dirichlet-multinomial mixture
   log-likelihood, WAIC arithmetic (matches `arviz.waic`). `method="block"` (assignments
   held fixed) is kept only for comparison: it underestimates p_waic for overfitted K.
+- **Calibration** (`src/pydmm/calibration.py`): tempered assignment probabilities
+  z_ik ∝ (w_k DM(x_i|α_k))^τ, applied after the fit (α, w, NLE/BIC/AIC/WAIC and the
+  argmax are unchanged). `estimate_temperature` (`temperature="auto"`) uses Good's
+  weight-of-evidence condition (calibrated normal LLR: var = 2·mean), pooled over
+  component pairs. Corrects over-confidence from correlated features and from the
+  Dirichlet's fixed per-feature variance; cannot repair a wrong partition.
 - **C Extension**:
   - `src/pydmm/wrapper.c`: Python C API wrapper exposing `pydmm_core.dirichlet_fit`
   - `src/pydmm/dirichlet_fit_standalone.c/.h`: EM algorithm, k-means init, BFGS
@@ -60,6 +66,12 @@ pytest --cov=pydmm --cov-report=term-missing
 pytest tests/test_core.py::TestDirichletMixture::test_clustering_performance
 ```
 
+### Assignment calibration (`validation/correlation/`)
+```bash
+venv/bin/python validation/correlation/experiment.py    # over-confidence vs correlation, candidate fixes
+venv/bin/python validation/correlation/tempered_em.py   # tempered assignments vs tempered EM (needs the patch in that dir)
+```
+
 ### WAIC validation (`validation/waic/`)
 ```bash
 python validation/waic/generate_data.py            # comparison dataset
@@ -86,14 +98,15 @@ validation/waic/.venv-prodiphy/bin/python validation/waic/make_fixtures.py   # t
 - **`test_c_extension.py`**: C extension integration, memory management, data layout handling
 - **`test_model_selection.py`**: BIC/AIC model selection, overclustering detection
 - **`test_sklearn_compatibility.py`**: scikit-learn API conformance
+- **`test_calibration.py`**: tempered assignments, `temperature="auto"` estimator, default path unchanged
 - **`test_waic.py`**: Hessian export, pointwise log-likelihood vs PyMC, WAIC vs arviz, prodiphy draws through pyDMM code (reference values in `tests/data/waic/`)
 - **`conftest.py`**: Shared test fixtures
 
 ## Key Design Patterns
 
-1. **Scikit-learn API**: `fit()`, `predict_proba()`, `fit_predict()`; constructor params are stored unchanged (`n_components`, `verbose`, `random_state`, `compute_waic`, `n_waic_draws`)
+1. **Scikit-learn API**: `fit()`, `predict_proba()`, `fit_predict()`; constructor params are stored unchanged (`n_components`, `verbose`, `random_state`, `compute_waic`, `n_waic_draws`, `temperature`)
 2. **Pandas Integration**: DataFrames preserve sample/feature names through the pipeline
-3. **Opt-in extras**: WAIC (and the Hessian export it needs) only run when `compute_waic=True`, so the default fit path stays as fast as before
+3. **Opt-in extras**: WAIC (and the Hessian export it needs) only run when `compute_waic=True`, and tempering only when `temperature` is set, so the default fit path stays as fast as before and its output bit-identical. New output-changing methods must follow the same pattern (off by default)
 4. **Result Object Pattern**: `DirichletMixtureResult` gives structured access to all outputs
 5. **Clustering Evaluation**: label-invariant metrics (purity, optimal assignment)
 

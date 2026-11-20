@@ -1,0 +1,75 @@
+diff --git a/src/pydmm/dirichlet_fit_standalone.c b/src/pydmm/dirichlet_fit_standalone.c
+index df90ee1..d07c9f8 100755
+--- a/src/pydmm/dirichlet_fit_standalone.c
++++ b/src/pydmm/dirichlet_fit_standalone.c
+@@ -291,7 +291,7 @@ static void calc_z(double **aadZ, const struct data_t *data,
+             adStore[k] = dNegLogEviI;
+         }
+         for (k = 0; k < K; k++) {
+-            aadZ[k][i] = adW[k] * exp(-(adStore[k] - dOffset));
++            aadZ[k][i] = adW[k] * exp(-(data->temperature * (adStore[k] - dOffset)));
+             dSum += aadZ[k][i];
+         }
+         for (k = 0; k < K; k++)
+diff --git a/src/pydmm/dirichlet_fit_standalone.h b/src/pydmm/dirichlet_fit_standalone.h
+index 2326417..6e9f7db 100644
+--- a/src/pydmm/dirichlet_fit_standalone.h
++++ b/src/pydmm/dirichlet_fit_standalone.h
+@@ -14,6 +14,9 @@ struct data_t {
+     int N, S, K;
+     const int *aanX;
+     double* adPi;
++    /* tempering of the E-step: z_ik ∝ w_k p(x_i | alpha_k)^temperature.
++       1.0 gives standard EM. */
++    double temperature;
+     /* result */
+     double NLE, LogDet;
+     double *group;
+diff --git a/src/pydmm/wrapper.c b/src/pydmm/wrapper.c
+index b95e8a9..f6d8590 100644
+--- a/src/pydmm/wrapper.c
++++ b/src/pydmm/wrapper.c
+@@ -9,14 +9,20 @@ static PyObject *dirichlet_fit_py(PyObject *self, PyObject *args, PyObject *kwar
+     int verbose = 0;
+     int seed = 42;
+     int return_hessian = 0;
++    double temperature = 1.0;
+ 
+     static char *kwlist[] = {"counts", "n_components", "verbose", "seed",
+-                             "return_hessian", NULL};
++                             "return_hessian", "temperature", NULL};
+ 
+-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O!|iiip", kwlist,
++    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O!|iiipd", kwlist,
+                                      &PyArray_Type, &counts_array,
+                                      &n_components, &verbose, &seed,
+-                                     &return_hessian)) {
++                                     &return_hessian, &temperature)) {
++        return NULL;
++    }
++
++    if (!(temperature > 0.0 && temperature <= 1.0)) {
++        PyErr_SetString(PyExc_ValueError, "temperature must be in (0, 1]");
+         return NULL;
+     }
+ 
+@@ -77,6 +83,7 @@ static PyObject *dirichlet_fit_py(PyObject *self, PyObject *args, PyObject *kwar
+     data->K = K;
+     data->aanX = (int *)PyArray_DATA(counts_contiguous);
+     data->hessian_out = NULL;
++    data->temperature = temperature;
+ 
+     // Optional Hessian output (K x S x S), owned by a NumPy array
+     PyArrayObject *hessian_array = NULL;
+@@ -245,7 +252,10 @@ static PyMethodDef module_methods[] = {
+      "      Random seed\n"
+      "  return_hessian : bool, optional (default=False)\n"
+      "      Also return 'Hessian', shape (K, S, S): per-component Hessian of\n"
+-     "      the negative log posterior w.r.t. log(alpha)\n\n"
++     "      the negative log posterior w.r.t. log(alpha)\n"
++     "  temperature : float, optional (default=1.0)\n"
++     "      Temper the E-step: z_ik ~ w_k p(x_i | alpha_k)^temperature.\n"
++     "      1.0 is standard EM\n\n"
+      "Returns:\n"
+      "  dict : Dictionary containing fit results"},
+     {NULL, NULL, 0, NULL}

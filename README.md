@@ -139,6 +139,22 @@ best_k = min(k for k in elpd_i
 
 WAIC estimates out-of-sample predictive accuracy, so, like AIC, its penalty does not grow with the number of samples. See `validation/waic/` for a comparison with prodiphy's MCMC-based WAIC and an experiment on how BIC, AIC and WAIC behave as N grows.
 
+## Calibrated Assignment Probabilities
+
+The usual assignment probabilities are often too close to 0 or 1. The Dirichlet-multinomial treats every feature as independent evidence, so features that rise and fall together (taxa of one guild, ASVs of one strain) count the same signal several times. The Dirichlet also fixes how much each feature may vary, so fluctuations in abundant features are read as strong evidence. In simulations pyDMM reported about 98% confidence for samples it assigned correctly only 70–85% of the time.
+
+Set `temperature` to temper the probabilities. With a value τ in (0, 1] they become z<sub>ik</sub> ∝ (w<sub>k</sub> · DM(x<sub>i</sub> | α<sub>k</sub>))<sup>τ</sup>. `"auto"` estimates τ from the fitted model without labels: a calibrated log-likelihood ratio between two components that is roughly normal has variance equal to twice its mean (Good's weight-of-evidence condition), and an inflated one does not. Tempering is off by default.
+
+```python
+dmm = DirichletMixture(n_components=3, temperature="auto").fit(data)
+dmm.temperature_                              # estimated tau, e.g. 0.2
+dmm.result.group_assignments                  # tempered probabilities
+dmm.result.group_assignments_untempered       # the usual EM responsibilities
+dmm.predict_proba(new_data)                   # tempered with the same tau
+```
+
+Tempering changes only the probabilities. The fitted α and weights, NLE, BIC, AIC and WAIC, and each sample's most likely component stay exactly as without it. It cannot repair a wrong partition, only report it with less confidence. A τ well below 1 on your data also tells you how strongly the features overlap in what they say. See `validation/correlation/` for the simulations.
+
 ## Working with Pandas DataFrames
 
 ```python
