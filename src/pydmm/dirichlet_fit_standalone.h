@@ -20,6 +20,10 @@ struct data_t {
     double *mixture_wt;
     double fit_laplace, fit_bic, fit_aic,
         *fit_lower, *fit_mpe, *fit_upper;
+    /* optional output: per-component Hessian of the negative log posterior
+       w.r.t. lambda = log(alpha), stored as [k * S * S + i * S + j].
+       Only filled when non-NULL (used for WAIC). */
+    double *hessian_out;
 };
 
 void dirichlet_fit_main(struct data_t *data, int rseed);

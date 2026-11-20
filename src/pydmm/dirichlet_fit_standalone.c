@@ -388,9 +388,9 @@ static void hessian(gsl_matrix* ptHessian, const double* adLambda,
         const double dPsi1Alpha = gsl_sf_psi_1(adAlpha[j]);
         for (i = 0; i < N; i++) {
             const int n = aanX[j * N + i];
-            adCJK0[j] += adPi[i] * n ? gsl_sf_psi(adAlpha[j] + n) : dPsiAlpha;
+            adCJK0[j] += adPi[i] * (n ? gsl_sf_psi(adAlpha[j] + n) : dPsiAlpha);
             adAJK0[j] += adPi[i] * dPsiAlpha;
-            adCJK[j] += adPi[i] * n ? gsl_sf_psi_1(adAlpha[j] + n): dPsi1Alpha;
+            adCJK[j] += adPi[i] * (n ? gsl_sf_psi_1(adAlpha[j] + n) : dPsi1Alpha);
             adAJK[j] += adPi[i] * dPsi1Alpha;
         }
     }
@@ -546,6 +546,11 @@ void dirichlet_fit_main(struct data_t *data, int rseed)
         if (k > 0)
             dLogDet += 2.0 * log(N) - log(adW[k]);
         hessian(ptHessian, aadLambda[k], data);
+        if (data->hessian_out)
+            for (i = 0; i < S; i++)
+                for (j = 0; j < S; j++)
+                    data->hessian_out[(size_t)k * S * S + i * S + j] =
+                        gsl_matrix_get(ptHessian, i, j);
 
         status = gsl_linalg_LU_decomp(ptHessian, p, &signum);
         if (status != GSL_SUCCESS) {

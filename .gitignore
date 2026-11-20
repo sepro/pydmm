@@ -184,10 +184,12 @@ src/pydmm/*.pyd
 src/pydmm.egg-info/
 
 # Local development files
-CLAUDE.md
 .claude/
 .devcontainer/
 example_*.py
 debug_*.py
 
 tmp/
+# WAIC validation: separate prodiphy environment and full PyMC traces
+validation/waic/.venv-prodiphy/
+validation/waic/results/traces/

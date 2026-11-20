@@ -9,6 +9,8 @@ import warnings
 from scipy.special import gammaln
 from sklearn.base import BaseEstimator, ClassifierMixin
 
+from .waic import compute_waic
+
 try:
     from . import pydmm_core
 except ImportError:  # pragma: no cover
@@ -30,6 +32,9 @@ class DirichletMixtureResult:
         n_components (int): Number of mixture components used
         n_samples (int): Number of samples in the dataset
         n_features (int): Number of features in the dataset
+        pointwise_log_likelihood (np.ndarray or None): Log-likelihood of each
+            sample under each posterior draw, shape (n_draws, n_samples).
+            Only set when the model was fitted with ``compute_waic=True``.
     """
 
     def __init__(self, result_dict: Dict[str, Any], n_components: int,
@@ -46,6 +51,7 @@ class DirichletMixtureResult:
         self.sample_names = sample_names
         self.feature_names = feature_names
         self.component_labels = None
+        self.pointwise_log_likelihood = None
 
     def set_component_labels(self, labels: Dict[int, str]) -> None:
         """
@@ -137,7 +143,7 @@ class DirichletMixtureResult:
 
     def summary(self) -> Dict[str, Any]:
         """Get a summary of the fitting results."""
-        return {
+        out = {
             "n_samples": self.n_samples,
             "n_features": self.n_features,
             "n_components": self.n_components,
@@ -146,6 +152,9 @@ class DirichletMixtureResult:
             "BIC": self.goodness_of_fit["BIC"],
             "AIC": self.goodness_of_fit["AIC"]
         }
+        if "WAIC" in self.goodness_of_fit:
+            out["WAIC"] = self.goodness_of_fit["WAIC"]
+        return out
 
 
 class DirichletMixture(ClassifierMixin, BaseEstimator):
@@ -159,6 +168,14 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
         n_components (int): Number of mixture components (default: 2)
         verbose (bool): Whether to print fitting progress (default: False)
         random_state (int): Random seed for reproducibility (default: 42)
+        compute_waic (bool): Also compute WAIC after fitting (default: False).
+            Posterior draws come from a joint Laplace approximation around the
+            EM solution (observed information of the mixture, Louis' identity).
+            Adds 'WAIC', 'elpd_waic', 'p_waic', 'WAIC_se' and
+            'WAIC_n_regularised' (number of flat or saddle directions whose
+            posterior SD was capped) to ``result_.goodness_of_fit``. WAIC is on
+            the same negative log-likelihood scale as BIC/AIC (lower is better).
+        n_waic_draws (int): Number of posterior draws for WAIC (default: 1000)
 
     Attributes:
         n_components (int): Number of mixture components
@@ -171,10 +188,13 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
     """
 
     def __init__(self, n_components: int = 2, verbose: bool = False,
-                 random_state: int = 42):
+                 random_state: int = 42, compute_waic: bool = False,
+                 n_waic_draws: int = 1000):
         self.n_components = n_components
         self.verbose = verbose
         self.random_state = random_state
+        self.compute_waic = compute_waic
+        self.n_waic_draws = n_waic_draws
         self.is_fitted = False
         self.result_ = None
 
@@ -273,12 +293,17 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
         # Ensure array is contiguous for C interface
         X_array = np.ascontiguousarray(X_array)
 
+        if self.compute_waic and (not isinstance(self.n_waic_draws, (int, np.integer))
+                                  or self.n_waic_draws < 2):
+            raise ValueError("n_waic_draws must be an integer >= 2")
+
         # Call the C extension
         result_dict = pydmm_core.dirichlet_fit(
             X_array,
             n_components=self.n_components,
             verbose=int(self.verbose),
-            seed=self.random_state
+            seed=self.random_state,
+            return_hessian=bool(self.compute_waic)
         )
 
         # Create result object
@@ -290,6 +315,22 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
             sample_names=sample_names,
             feature_names=feature_names
         )
+
+        if self.compute_waic:
+            waic = compute_waic(
+                X_array,
+                alpha_hat=self.result_.parameter_estimates["Estimate"],
+                mixture_weights=self.result_.mixture_weights,
+                hessian=result_dict["Hessian"],
+                n_draws=int(self.n_waic_draws),
+                random_state=self.random_state,
+            )
+            self.result_.goodness_of_fit["WAIC"] = waic["WAIC"]
+            self.result_.goodness_of_fit["elpd_waic"] = waic["elpd_waic"]
+            self.result_.goodness_of_fit["p_waic"] = waic["p_waic"]
+            self.result_.goodness_of_fit["WAIC_se"] = waic["se"]
+            self.result_.goodness_of_fit["WAIC_n_regularised"] = waic["n_regularised"]
+            self.result_.pointwise_log_likelihood = waic["log_likelihood"]
 
         self.is_fitted = True
 

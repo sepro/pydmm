@@ -1,0 +1,10 @@
+# Separate environment for the prodiphy reference runs (not a pyDMM dependency).
+# python -m venv validation/waic/.venv-prodiphy
+# validation/waic/.venv-prodiphy/bin/pip install -r validation/waic/requirements-prodiphy.txt
+prodiphy @ git+https://github.com/raeslab/prodiphy
+pymc>=5.16.2,<6
+arviz>=0.19,<1.0
+nutpie
+numpy
+pandas
+scipy

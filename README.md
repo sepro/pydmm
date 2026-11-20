@@ -14,7 +14,7 @@ pyDMM provides a Python interface to a C implementation of Dirichlet Mixture Mod
   - Supports get_params() and set_params() for parameter management
 - **Standard sklearn API** with `fit()`, `predict()`, `predict_proba()`, and `fit_predict()` methods
 - **Pandas DataFrame integration** with preserved sample and feature names
-- **Comprehensive model diagnostics** including BIC, AIC, and parameter estimates
+- **Comprehensive model diagnostics** including BIC, AIC, optional WAIC, and parameter estimates
 - **Automatic model selection** using information criteria
 - **Label-invariant clustering evaluation** for proper unsupervised assessment
 
@@ -102,6 +102,42 @@ for k in cluster_options:
 best_k = cluster_options[np.argmin(bic_scores)]
 print(f"Optimal number of clusters: {best_k}")
 ```
+
+### WAIC
+
+Set `compute_waic=True` to also compute the widely applicable information criterion (WAIC). EM only finds the posterior mode, so pyDMM draws `n_waic_draws` (default 1,000) parameter sets from a joint Laplace approximation around it. The covariance is the inverse observed information of the mixture over log α and the weight logits. It includes the uncertainty in which cluster each sample belongs to, which is what penalises redundant or split clusters. Directions the data barely constrain, which overfitted fits have, get their posterior SD capped at 1; `goodness_of_fit["WAIC_n_regularised"]` reports how many. WAIC is off by default, so ordinary fits are not slowed down.
+
+```python
+dmm = DirichletMixture(n_components=3, compute_waic=True, n_waic_draws=1000)
+dmm.fit(data)
+gof = dmm.result.goodness_of_fit
+print(gof["WAIC"], gof["WAIC_se"], gof["p_waic"], gof["elpd_waic"])
+
+# draws x samples log-likelihood matrix, for your own diagnostics
+dmm.result.pointwise_log_likelihood.shape
+```
+
+`WAIC = -elpd_waic` and uses the same negative log-likelihood scale as BIC and AIC (lower is better). arviz and prodiphy report `elpd_waic` (higher is better); multiply by −2 for the deviance scale used in the literature. BIC, AIC and NLE include the Gamma(0.1, 0.1) prior on α while WAIC does not, so compare each criterion across K, not WAIC against BIC.
+
+To choose K, don't take the minimum WAIC. Take the smallest K for which no larger K is better by more than about two standard errors of the difference. That SE comes from the pointwise values:
+
+```python
+from pydmm.waic import waic_from_log_likelihood
+
+elpd_i = {}
+for k in range(1, 9):
+    m = DirichletMixture(n_components=k, compute_waic=True).fit(data)
+    elpd_i[k] = waic_from_log_likelihood(m.result.pointwise_log_likelihood)["elpd_waic_i"]
+
+def confidently_better(k_big, k_small, z=2.0):
+    d = elpd_i[k_big] - elpd_i[k_small]
+    return d.sum() > z * np.sqrt(d.size * d.var())
+
+best_k = min(k for k in elpd_i
+             if not any(confidently_better(k2, k) for k2 in elpd_i if k2 > k))
+```
+
+WAIC estimates out-of-sample predictive accuracy, so, like AIC, its penalty does not grow with the number of samples. See `validation/waic/` for a comparison with prodiphy's MCMC-based WAIC and an experiment on how BIC, AIC and WAIC behave as N grows.
 
 ## Working with Pandas DataFrames
 

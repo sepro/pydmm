@@ -8,12 +8,15 @@ static PyObject *dirichlet_fit_py(PyObject *self, PyObject *args, PyObject *kwar
     int n_components = 2;
     int verbose = 0;
     int seed = 42;
+    int return_hessian = 0;
 
-    static char *kwlist[] = {"counts", "n_components", "verbose", "seed", NULL};
+    static char *kwlist[] = {"counts", "n_components", "verbose", "seed",
+                             "return_hessian", NULL};
 
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O!|iii", kwlist,
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O!|iiip", kwlist,
                                      &PyArray_Type, &counts_array,
-                                     &n_components, &verbose, &seed)) {
+                                     &n_components, &verbose, &seed,
+                                     &return_hessian)) {
         return NULL;
     }
 
@@ -73,6 +76,20 @@ static PyObject *dirichlet_fit_py(PyObject *self, PyObject *args, PyObject *kwar
     data->S = S;  // C code expects S features
     data->K = K;
     data->aanX = (int *)PyArray_DATA(counts_contiguous);
+    data->hessian_out = NULL;
+
+    // Optional Hessian output (K x S x S), owned by a NumPy array
+    PyArrayObject *hessian_array = NULL;
+    if (return_hessian) {
+        npy_intp hess_dims[3] = {K, S, S};
+        hessian_array = (PyArrayObject *)PyArray_SimpleNew(3, hess_dims, NPY_DOUBLE);
+        if (!hessian_array) {
+            free(data);
+            Py_DECREF(counts_contiguous);
+            return NULL;
+        }
+        data->hessian_out = (double *)PyArray_DATA(hessian_array);
+    }
 
     // Allocate output arrays
     data->group = (double *)malloc(N * K * sizeof(double));
@@ -90,6 +107,7 @@ static PyObject *dirichlet_fit_py(PyObject *self, PyObject *args, PyObject *kwar
         free(data->fit_mpe);
         free(data->fit_upper);
         free(data);
+        Py_XDECREF(hessian_array);
         Py_DECREF(counts_contiguous);
         PyErr_SetString(PyExc_MemoryError, "Failed to allocate output arrays");
         return NULL;
@@ -150,6 +168,7 @@ static PyObject *dirichlet_fit_py(PyObject *self, PyObject *args, PyObject *kwar
         free(data->fit_mpe);
         free(data->fit_upper);
         free(data);
+        Py_XDECREF(hessian_array);
         Py_DECREF(counts_contiguous);
         return NULL;
     }
@@ -169,6 +188,7 @@ static PyObject *dirichlet_fit_py(PyObject *self, PyObject *args, PyObject *kwar
         Py_DECREF(fit_lower_array);
         Py_DECREF(fit_mpe_array);
         Py_DECREF(fit_upper_array);
+        Py_XDECREF(hessian_array);
         free(data);
         Py_DECREF(counts_contiguous);
         return NULL;
@@ -198,6 +218,11 @@ static PyObject *dirichlet_fit_py(PyObject *self, PyObject *args, PyObject *kwar
     PyDict_SetItemString(fit_dict, "Upper", (PyObject *)fit_upper_array);
     PyDict_SetItemString(result, "Fit", fit_dict);
 
+    if (hessian_array) {
+        PyDict_SetItemString(result, "Hessian", (PyObject *)hessian_array);
+        Py_DECREF(hessian_array);
+    }
+
     // Clean up
     Py_DECREF(counts_contiguous);  // Clean up transposed array
     free(data);
@@ -217,7 +242,10 @@ static PyMethodDef module_methods[] = {
      "  verbose : int, optional (default=0)\n"
      "      Verbosity level\n"
      "  seed : int, optional (default=42)\n"
-     "      Random seed\n\n"
+     "      Random seed\n"
+     "  return_hessian : bool, optional (default=False)\n"
+     "      Also return 'Hessian', shape (K, S, S): per-component Hessian of\n"
+     "      the negative log posterior w.r.t. log(alpha)\n\n"
      "Returns:\n"
      "  dict : Dictionary containing fit results"},
     {NULL, NULL, 0, NULL}
