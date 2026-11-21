@@ -150,7 +150,8 @@ validation/waic/.venv-prodiphy/bin/python validation/waic/make_fixtures.py   # t
 1. **Input**: DataFrame or NumPy array → validation → int32 array
 2. **C Interface**: transpose to column-major, allocate outputs, call `dirichlet_fit_main`, convert outputs to NumPy arrays with the expected shapes
 3. **Output**: wrapped in `DirichletMixtureResult`; with `compute_waic=True`, WAIC metrics are added to `goodness_of_fit` and draws × samples log-likelihoods to `pointwise_log_likelihood`
-4. **Memory**: output arrays are created with `NPY_ARRAY_OWNDATA` so NumPy frees them
+4. **Memory**: output arrays are NumPy copies (they own their data); the wrapper frees the C
+   buffers and releases its own reference after each `PyDict_SetItemString` (it does not steal)
 
 ## Common Issues
 

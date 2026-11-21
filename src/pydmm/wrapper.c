@@ -124,7 +124,6 @@ static PyObject *dirichlet_fit_py(PyObject *self, PyObject *args, PyObject *kwar
     // C code stores group as [k * N + i], so dimensions are (K, N)
     npy_intp group_dims[2] = {K, N};
     npy_intp mixture_dims[1] = {K};
-    npy_intp fit_dims[2] = {S, K};
 
     PyArrayObject *group_array_raw = (PyArrayObject *)PyArray_SimpleNewFromData(
         2, group_dims, NPY_DOUBLE, data->group);
@@ -134,8 +133,10 @@ static PyObject *dirichlet_fit_py(PyObject *self, PyObject *args, PyObject *kwar
     Py_DECREF(group_array_raw);
     Py_DECREF(group_array_transposed);
 
-    PyArrayObject *mixture_array = (PyArrayObject *)PyArray_SimpleNewFromData(
+    PyArrayObject *mixture_array_raw = (PyArrayObject *)PyArray_SimpleNewFromData(
         1, mixture_dims, NPY_DOUBLE, data->mixture_wt);
+    PyArrayObject *mixture_array = (PyArrayObject *)PyArray_Copy(mixture_array_raw);
+    Py_DECREF(mixture_array_raw);
 
     // C code stores fit arrays as [k * S + i], so dimensions are (K, S)
     npy_intp fit_c_dims[2] = {K, S};
@@ -177,12 +178,13 @@ static PyObject *dirichlet_fit_py(PyObject *self, PyObject *args, PyObject *kwar
         return NULL;
     }
 
-    // Set arrays to own their data
-    // group_array is a copy, so it already owns its data
-    PyArray_ENABLEFLAGS(mixture_array, NPY_ARRAY_OWNDATA);
-    PyArray_ENABLEFLAGS(fit_lower_array, NPY_ARRAY_OWNDATA);
-    PyArray_ENABLEFLAGS(fit_mpe_array, NPY_ARRAY_OWNDATA);
-    PyArray_ENABLEFLAGS(fit_upper_array, NPY_ARRAY_OWNDATA);
+    // The output arrays are copies that own their data, so the C buffers
+    // are no longer needed
+    free(data->group);
+    free(data->mixture_wt);
+    free(data->fit_lower);
+    free(data->fit_mpe);
+    free(data->fit_upper);
 
     // Create return dictionary
     PyObject *result = PyDict_New();
@@ -198,22 +200,31 @@ static PyObject *dirichlet_fit_py(PyObject *self, PyObject *args, PyObject *kwar
         return NULL;
     }
 
+    // PyDict_SetItemString does not steal references: release ours after
+    // each insertion, so the dict holds the only one.
     // Add goodness of fit metrics
     PyObject *goodness_dict = PyDict_New();
-    PyDict_SetItemString(goodness_dict, "NLE", PyFloat_FromDouble(data->NLE));
-    PyDict_SetItemString(goodness_dict, "LogDet", PyFloat_FromDouble(data->LogDet));
-    PyDict_SetItemString(goodness_dict, "Laplace", PyFloat_FromDouble(data->fit_laplace));
-    PyDict_SetItemString(goodness_dict, "BIC", PyFloat_FromDouble(data->fit_bic));
-    PyDict_SetItemString(goodness_dict, "AIC", PyFloat_FromDouble(data->fit_aic));
+    const char *goodness_names[] = {"NLE", "LogDet", "Laplace", "BIC", "AIC"};
+    const double goodness_values[] = {data->NLE, data->LogDet, data->fit_laplace,
+                                      data->fit_bic, data->fit_aic};
+    for (int m = 0; m < 5; m++) {
+        PyObject *value = PyFloat_FromDouble(goodness_values[m]);
+        PyDict_SetItemString(goodness_dict, goodness_names[m], value);
+        Py_DECREF(value);
+    }
     PyDict_SetItemString(result, "GoodnessOfFit", goodness_dict);
+    Py_DECREF(goodness_dict);
 
     // Add group assignments
     PyDict_SetItemString(result, "Group", (PyObject *)group_array);
+    Py_DECREF(group_array);
 
     // Add mixture weights
     PyObject *mixture_dict = PyDict_New();
     PyDict_SetItemString(mixture_dict, "Weight", (PyObject *)mixture_array);
     PyDict_SetItemString(result, "Mixture", mixture_dict);
+    Py_DECREF(mixture_array);
+    Py_DECREF(mixture_dict);
 
     // Add fit results
     PyObject *fit_dict = PyDict_New();
@@ -221,6 +232,10 @@ static PyObject *dirichlet_fit_py(PyObject *self, PyObject *args, PyObject *kwar
     PyDict_SetItemString(fit_dict, "Estimate", (PyObject *)fit_mpe_array);
     PyDict_SetItemString(fit_dict, "Upper", (PyObject *)fit_upper_array);
     PyDict_SetItemString(result, "Fit", fit_dict);
+    Py_DECREF(fit_lower_array);
+    Py_DECREF(fit_mpe_array);
+    Py_DECREF(fit_upper_array);
+    Py_DECREF(fit_dict);
 
     if (hessian_array) {
         PyDict_SetItemString(result, "Hessian", (PyObject *)hessian_array);

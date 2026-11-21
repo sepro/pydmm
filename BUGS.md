@@ -2,22 +2,6 @@
 
 This file lists open bugs. Each entry gives the symptom, the cause and the steps to reproduce it. The text uses ASD-STE100 Simplified Technical English.
 
-## 4. The random number generator is not released
-
-**Status:** Open. Found by code review on 20 Nov 2026.
-
-**Symptom:** Each `DirichletMixture` fit keeps a small quantity of memory.
-
-**Cause:** `dirichlet_fit_main()` calls `gsl_rng_alloc()` but does not call `gsl_rng_free()`.
-
-**To reproduce:**
-
-1. Fit `DirichletMixture` 10,000 times in one Python process.
-2. Monitor the memory of the process.
-3. Make sure that the memory increases.
-
-**Possible fix:** Call `gsl_rng_free(ptGSLRNG)` at the end of `dirichlet_fit_main()`. This fix does not change the results.
-
 ## 5. temperature="auto" makes a DirichletTreeMixture almost uniform
 
 **Status:** Open. Found on 20 Nov 2026 in the American Gut case study (`validation/case_study/`, local only, not in git). Workaround: use `temperature="one-step"`. This option stops after the first step of the iteration.

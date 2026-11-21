@@ -139,3 +139,35 @@ class TestUninitialisedStart:
         values = _run_c_harness(exe)
         assert values["NLE0"] == values["NLE1"]
         assert values["SameGroup"] == 1
+
+
+class TestMemoryLeaks:
+    """Bug 4: each DirichletMixture fit kept memory (RNG, C buffers, results)."""
+
+    def test_result_arrays_are_released(self):
+        import gc
+        import weakref
+
+        X = np.random.default_rng(0).poisson(20, (50, 5)).astype(np.int32)
+        r = pydmm_core.dirichlet_fit(X, n_components=2, return_hessian=True)
+        refs = [weakref.ref(r["Group"]), weakref.ref(r["Mixture"]["Weight"]),
+                weakref.ref(r["Hessian"])]
+        refs += [weakref.ref(v) for v in r["Fit"].values()]
+        del r
+        gc.collect()
+        assert all(ref() is None for ref in refs)
+
+    @pytest.mark.skipif(not Path("/proc/self/statm").exists(), reason="needs /proc")
+    def test_repeated_fits_do_not_grow_memory(self):
+        def rss_kb():
+            with open("/proc/self/statm") as f:
+                return int(f.read().split()[1]) * 4
+
+        X = np.random.default_rng(0).poisson(20, (6, 3)).astype(np.int32)
+        for _ in range(300):
+            pydmm_core.dirichlet_fit(X, n_components=1, seed=1)
+        before = rss_kb()
+        for _ in range(3000):
+            pydmm_core.dirichlet_fit(X, n_components=1, seed=1)
+        # before the fix: about 7 kB per fit (21 MB here)
+        assert rss_kb() - before < 3000

@@ -45,6 +45,7 @@ static void calc_z(double **aadZ, const struct data_t *data,
         for (k = 0; k < K; k++)
             aadZ[k][i] /= dSum;
     }
+    free(aadLngammaLambda0);
 }
 
 static double neg_log_likelihood(double *adW, double** aadLambda,
@@ -113,6 +114,7 @@ static double neg_log_likelihood(double *adW, double** aadLambda,
         }
     dL7 *= -GAMMA_NU;
     dL8 *= GAMMA_ITA;
+    free(aadLngammaLambda0);
 
     return -dRet -dL5 - dL6 -dL7 -dL8;
 }
@@ -313,4 +315,5 @@ void dirichlet_fit_main(struct data_t *data, int rseed)
     free(aadLambda[0]); free(aadLambda);
     free(aadZ[0]); free(aadZ);
     free(adW);
+    gsl_rng_free(ptGSLRNG);
 }
