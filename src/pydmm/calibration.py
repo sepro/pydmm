@@ -168,8 +168,9 @@ def estimate_temperature(
     Good's condition with the untempered assignments as weights. These weights
     do not depend on tau, so the estimate cannot drift. With heavy-tailed
     log-likelihood ratios (for example a DirichletTreeMixture on real data)
-    the full iteration can drift to a tau that is much too small (BUGS.md,
-    bug 5); the one-step estimate does not have this problem.
+    the full iteration can drift to a tau that is much too small; the one-step
+    estimate does not have this problem. DirichletTreeMixture therefore warns
+    when it is used with temperature="auto".
 
     Assumes the log-likelihood ratios are roughly normal within a component.
     Tempering cannot repair a wrong partition, only lower its confidence.

@@ -1,4 +1,4 @@
-/* Fault injection for BUGS.md bug 2 (tests/test_bug_fixes.py).
+/* Fault injection for former BUGS.md bug 2 (tests/test_bug_fixes.py).
    The real hessian() is renamed to hessian_orig at compile time; this
    hessian() replaces the matrix of component 1 with a singular one.
    dirichlet_fit_main() must return (not exit) and report NaN. */

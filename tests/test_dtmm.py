@@ -2,6 +2,8 @@
 Tests for the Dirichlet-tree multinomial mixture (DirichletTreeMixture) and Tree.
 """
 
+import warnings
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -338,9 +340,12 @@ class TestDirichletTreeMixture:
                                       plain.result_.group_assignments)
         np.testing.assert_allclose(temp.predict_proba(X), temp.result_.group_assignments, atol=1e-10)
         np.testing.assert_array_equal(temp.predict(X), plain.predict(X))
-        auto = DirichletTreeMixture(n_components=2, tree=tree, temperature="auto").fit(X)
+        with pytest.warns(UserWarning, match='temperature="one-step"'):
+            auto = DirichletTreeMixture(n_components=2, tree=tree, temperature="auto").fit(X)
         assert 0.0 < auto.temperature_ <= 1.0
-        one = DirichletTreeMixture(n_components=2, tree=tree, temperature="one-step").fit(X)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            one = DirichletTreeMixture(n_components=2, tree=tree, temperature="one-step").fit(X)
         assert 0.0 < one.temperature_ <= 1.0
         np.testing.assert_array_equal(one.predict(X), plain.predict(X))
         with pytest.raises(ValueError):

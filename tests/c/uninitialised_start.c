@@ -1,4 +1,4 @@
-/* Regression harness for BUGS.md bug 3 (tests/test_bug_fixes.py).
+/* Regression harness for former BUGS.md bug 3 (tests/test_bug_fixes.py).
    dirichlet_fit_main() must not depend on what malloc returns. Before each
    fit, chunks of the size of aadLambda (K * S doubles) are filled with zero
    or with 0xFF bytes (NaN) and freed; glibc gives them back to the next

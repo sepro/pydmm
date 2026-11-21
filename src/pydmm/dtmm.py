@@ -17,6 +17,7 @@ References:
     microbiome compositions. Annals of Applied Statistics 16(3).
 """
 
+import warnings
 from typing import Any, Dict, Optional, Union
 
 import numpy as np
@@ -138,8 +139,9 @@ class DirichletTreeMixture(DirichletMixture):
         random_state (int): Random seed for reproducibility (default: 42)
         temperature (None, float, "auto" or "one-step"): Temper the assignment
             probabilities, as in ``DirichletMixture`` (default: None, off).
-            On real data "auto" can make a DTMM almost uniform (BUGS.md,
-            bug 5); "one-step" does not have this problem.
+            "auto" is discouraged for the DTMM and gives a warning: on
+            heavy-tailed data its iteration can drift to a tau near zero,
+            and the probabilities become almost uniform. Use "one-step".
 
     Attributes:
         result_ (DirichletTreeMixtureResult): Fitting results (after fit)
@@ -188,6 +190,13 @@ class DirichletTreeMixture(DirichletMixture):
         X_array, sample_names, feature_names = self._validate_input(X)
         X_array = np.ascontiguousarray(X_array)
         validate_temperature(self.temperature)
+        if isinstance(self.temperature, str) and self.temperature == "auto":
+            warnings.warn(
+                'temperature="auto" is discouraged for DirichletTreeMixture: on '
+                'heavy-tailed data the fixed-point iteration can drift to a '
+                'temperature near zero, which makes the assignment probabilities '
+                'almost uniform. Use temperature="one-step" instead.',
+                UserWarning, stacklevel=2)
         tree = self._resolve_tree(X_array, feature_names)
 
         result_dict = pydmm_core.dirichlet_tree_fit(

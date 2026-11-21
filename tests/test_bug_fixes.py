@@ -1,5 +1,6 @@
 """
-Regression tests for bugs that were listed in BUGS.md.
+Regression tests for bugs 1-4 that were listed in BUGS.md (file removed when
+all bugs were closed; see its git history).
 """
 
 import shutil

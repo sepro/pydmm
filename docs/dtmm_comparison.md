@@ -80,7 +80,7 @@ priors in a Bayesian model, but stays within pyDMM's EM framework.
 | NLE from C vs likelihood + prior recomputed in Python at the fitted parameters | equal to 1e-9 relative, with and without selection |
 | C fit vs NumPy reference (`validation/dtmm/reference.py`) at the same parameters | identical NLE |
 | Groups that differ only at the root of a clade tree | node selection kept exactly the root, and nothing else, in all 40 replicates of the S = 60 tree scenarios |
-| All components equal after EM (symmetric saddle point) | the DTMM detects it and restarts from hard k-means with k-means++ seeding (`tests/test_dtmm.py::TestCollapsedStart`). The DMM has the same problem without the restart; see `BUGS.md` |
+| All components equal after EM (symmetric saddle point) | the DTMM detects it and restarts from hard k-means with k-means++ seeding (`tests/test_dtmm.py::TestCollapsedStart`). The DMM does the same restart only with `restart_collapsed=True` (off by default) |
 | `DirichletMixture` output after moving its node routines to `dirichlet_node.c` | bit-identical to before (saved baselines, including WAIC) |
 | Existing test suite | all 145 tests pass unchanged; 49 new tests in `tests/test_dtmm.py` |
 
@@ -253,7 +253,8 @@ data-built tree is binary (S − 1 nodes). Building the data tree took under
 
 * The soft k-means start shared with the DMM can put all components at the
   same point when there are many features (seen at N = 300, S = 240). The DTMM
-  restarts from hard k-means when that happens; the DMM does not (`BUGS.md`).
+  restarts from hard k-means when that happens; the DMM does so only with
+  `restart_collapsed=True` (off by default).
 * No WAIC for the DTMM yet. The Hessian is block-diagonal per node, so the
   Laplace approach used for the DMM (`waic.py`) can be extended.
 * Node selection is a greedy BIC rule. Mao & Ma (2022) select nodes with

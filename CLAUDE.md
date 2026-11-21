@@ -25,7 +25,8 @@ A Rust port exists on the `rust` branch but was slower than the C core; `main` s
   component pairs, iterated to a fixed point (weights = tempered assignments).
   `temperature="one-step"` is the first iterate only (`max_iter=1`, weights =
   untempered assignments); it cannot drift, which "auto" does on heavy-tailed DTMM
-  ratios (BUGS.md bug 5). Both go through `resolve_temperature`. Corrects
+  ratios; `DirichletTreeMixture` gives a `UserWarning` for "auto" and recommends
+  "one-step" (no estimator fix found, see the git history of `BUGS.md`, bug 5). Both go through `resolve_temperature`. Corrects
   over-confidence from correlated features and from the Dirichlet's fixed
   per-feature variance; cannot repair a wrong partition.
 - **Dirichlet-tree mixture** (`src/pydmm/dtmm.py`, `src/pydmm/tree.py`):
@@ -131,7 +132,8 @@ validation/waic/.venv-prodiphy/bin/python validation/waic/make_fixtures.py   # t
 - **`test_sklearn_compatibility.py`**: scikit-learn API conformance
 - **`test_dtmm.py`**: `Tree` builders, C tree fit (star == DMM, NLE vs Python likelihood, invalid trees), node selection, `DirichletTreeMixture` API and sklearn compatibility
 - **`test_calibration.py`**: tempered assignments, `temperature="auto"` estimator, default path unchanged
-- **`test_bug_fixes.py`**: regression tests for bugs fixed from `BUGS.md`; two tests
+- **`test_bug_fixes.py`**: regression tests for bugs 1–4 of the former `BUGS.md`
+  (removed when all bugs were closed; see git history); two tests
   compile C harnesses in `tests/c/` with the DMM sources (singular-Hessian fault injection,
   heap poisoning for the k-means start); skipped without a C compiler/GSL
 - **`test_waic.py`**: Hessian export, pointwise log-likelihood vs PyMC, WAIC vs arviz, prodiphy draws through pyDMM code (reference values in `tests/data/waic/`)
