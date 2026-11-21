@@ -131,7 +131,8 @@ validation/waic/.venv-prodiphy/bin/python validation/waic/make_fixtures.py   # t
 - **`test_sklearn_compatibility.py`**: scikit-learn API conformance
 - **`test_dtmm.py`**: `Tree` builders, C tree fit (star == DMM, NLE vs Python likelihood, invalid trees), node selection, `DirichletTreeMixture` API and sklearn compatibility
 - **`test_calibration.py`**: tempered assignments, `temperature="auto"` estimator, default path unchanged
-- **`test_bug_fixes.py`**: regression tests for bugs fixed from `BUGS.md`
+- **`test_bug_fixes.py`**: regression tests for bugs fixed from `BUGS.md`; the singular-Hessian
+  test compiles `tests/c/singular_hessian.c` (fault injection, skipped without a C compiler/GSL)
 - **`test_waic.py`**: Hessian export, pointwise log-likelihood vs PyMC, WAIC vs arviz, prodiphy draws through pyDMM code (reference values in `tests/data/waic/`)
 - **`conftest.py`**: Shared test fixtures
 

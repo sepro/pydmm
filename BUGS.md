@@ -2,26 +2,6 @@
 
 This file lists open bugs. Each entry gives the symptom, the cause and the steps to reproduce it. The text uses ASD-STE100 Simplified Technical English.
 
-## 2. DirichletMixture stops the Python process when the Hessian is singular
-
-**Status:** Open. Found by code review on 20 Nov 2026. Not seen in a test run.
-
-**Symptom:** The Python process stops. No Python exception occurs.
-
-**Cause:** In `dirichlet_fit_main()` (`src/pydmm/dirichlet_fit_standalone.c`), the code calls `exit(1)` when `gsl_linalg_LU_decomp()` fails on the Hessian.
-
-**To reproduce:**
-
-No tested data set is available yet.
-
-1. Find data where a component Hessian is singular. Possible examples (not tested): a component that gets no samples, or very large `n_components` for few samples.
-2. Fit `DirichletMixture` on these data.
-3. Make sure that the Python process stops.
-
-**Expected result:** The fit continues. The confidence intervals are NaN, or the code raises a Python exception.
-
-**Possible fix:** Do not call `exit(1)`. Set the errors and `LogDet` to NaN. `dirichlet_tree_fit.c` uses this procedure.
-
 ## 3. The soft k-means start reads memory that is not initialised
 
 **Status:** Open. Found by code review on 20 Nov 2026.

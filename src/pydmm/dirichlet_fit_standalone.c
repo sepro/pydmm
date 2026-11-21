@@ -272,24 +272,22 @@ void dirichlet_fit_main(struct data_t *data, int rseed)
                     data->hessian_out[(size_t)k * S * S + i * S + j] =
                         gsl_matrix_get(ptHessian, i, j);
 
+        /* a singular Hessian gives NaN errors and log-determinant (so NaN
+           confidence limits and Laplace), as in dirichlet_tree_fit.c */
         status = gsl_linalg_LU_decomp(ptHessian, p, &signum);
-        if (status != GSL_SUCCESS) {
-            gsl_matrix_free(ptHessian);
-            gsl_matrix_free(ptInverseHessian);
-            gsl_permutation_free(p);
-
-            free(aadErr[0]); free(aadErr);
-            free(aadLambda[0]); free(aadLambda);
-            free(aadZ[0]); free(aadZ);
-            free(adW);
-
-            fprintf(stderr, "Error: LU decompistion of a singular matrix during Hessian\n"); exit(1);
-        }
-        gsl_linalg_LU_invert(ptHessian, p, ptInverseHessian);
+        if (status == GSL_SUCCESS)
+            status = gsl_linalg_LU_invert(ptHessian, p, ptInverseHessian);
+        if (status != GSL_SUCCESS && data->verbose)
+            printf("  Hessian of component %d is singular\n", k);
         for (j = 0; j < S; j++) {
-            aadErr[k][j] = gsl_matrix_get(ptInverseHessian, j, j);
-            dTemp = gsl_matrix_get(ptHessian, j, j);
-            dLogDet += log(fabs(dTemp));
+            if (status == GSL_SUCCESS) {
+                aadErr[k][j] = gsl_matrix_get(ptInverseHessian, j, j);
+                dTemp = gsl_matrix_get(ptHessian, j, j);
+                dLogDet += log(fabs(dTemp));
+            } else {
+                aadErr[k][j] = NAN;
+                dLogDet = NAN;
+            }
         }
     }
 
