@@ -204,6 +204,14 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
             parameters, NLE, BIC, AIC and WAIC are not changed, and the
             untempered assignments stay in
             ``result_.group_assignments_untempered``.
+        restart_collapsed (bool): Restart once from hard k-means (k-means++
+            seeding) when EM ends with all components equal (default: False).
+            The soft k-means start can make all components almost equal when
+            the samples have very similar compositions (many features, small
+            differences between groups); EM then stays at this symmetric
+            saddle point and every assignment probability is 1/K. The restart
+            only runs for such collapsed fits, so other fits do not change.
+            ``DirichletTreeMixture`` always does this restart.
 
     Attributes:
         n_components (int): Number of mixture components
@@ -219,13 +227,15 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
 
     def __init__(self, n_components: int = 2, verbose: bool = False,
                  random_state: int = 42, compute_waic: bool = False,
-                 n_waic_draws: int = 1000, temperature=None):
+                 n_waic_draws: int = 1000, temperature=None,
+                 restart_collapsed: bool = False):
         self.n_components = n_components
         self.verbose = verbose
         self.random_state = random_state
         self.compute_waic = compute_waic
         self.n_waic_draws = n_waic_draws
         self.temperature = temperature
+        self.restart_collapsed = restart_collapsed
         self.is_fitted = False
         self.result_ = None
 
@@ -335,7 +345,8 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
             n_components=self.n_components,
             verbose=int(self.verbose),
             seed=self.random_state,
-            return_hessian=bool(self.compute_waic)
+            return_hessian=bool(self.compute_waic),
+            restart_collapsed=bool(self.restart_collapsed)
         )
 
         # Create result object
@@ -506,4 +517,4 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
 
     @property
     def result(self):
-        return self.result_
+        return self.result_

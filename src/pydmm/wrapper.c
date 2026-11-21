@@ -11,14 +11,15 @@ static PyObject *dirichlet_fit_py(PyObject *self, PyObject *args, PyObject *kwar
     int verbose = 0;
     int seed = 42;
     int return_hessian = 0;
+    int restart_collapsed = 0;
 
     static char *kwlist[] = {"counts", "n_components", "verbose", "seed",
-                             "return_hessian", NULL};
+                             "return_hessian", "restart_collapsed", NULL};
 
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O!|iiip", kwlist,
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O!|iiipp", kwlist,
                                      &PyArray_Type, &counts_array,
                                      &n_components, &verbose, &seed,
-                                     &return_hessian)) {
+                                     &return_hessian, &restart_collapsed)) {
         return NULL;
     }
 
@@ -74,6 +75,7 @@ static PyObject *dirichlet_fit_py(PyObject *self, PyObject *args, PyObject *kwar
     }
 
     data->verbose = verbose;
+    data->restart_collapsed = restart_collapsed;
     data->N = N;  // C code expects N samples
     data->S = S;  // C code expects S features
     data->K = K;
@@ -456,7 +458,10 @@ static PyMethodDef module_methods[] = {
      "      Random seed\n"
      "  return_hessian : bool, optional (default=False)\n"
      "      Also return 'Hessian', shape (K, S, S): per-component Hessian of\n"
-     "      the negative log posterior w.r.t. log(alpha)\n\n"
+     "      the negative log posterior w.r.t. log(alpha)\n"
+     "  restart_collapsed : bool, optional (default=False)\n"
+     "      If EM ends with all components equal (every sample has the same\n"
+     "      assignments), restart once from hard k-means (k-means++ seeding)\n\n"
      "Returns:\n"
      "  dict : Dictionary containing fit results"},
     {"dirichlet_tree_fit", (PyCFunction)dirichlet_tree_fit_py,
@@ -499,4 +504,4 @@ PyMODINIT_FUNC PyInit_pydmm_core(void)
     import_array();
 
     return module;
-}
+}

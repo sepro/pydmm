@@ -106,6 +106,14 @@ best_k = cluster_options[np.argmin(bic_scores)]
 print(f"Optimal number of clusters: {best_k}")
 ```
 
+### Collapsed fits
+
+EM starts from a soft k-means clustering. When the samples have very similar compositions (many features, small differences between groups), this start can make all components almost equal, and EM stays there: every assignment probability is 1/K and the weights are equal. Set `restart_collapsed=True` to detect this and restart once from hard k-means with k-means++ seeding. Fits that do not collapse are not changed. It is off by default so that existing results stay the same; `DirichletTreeMixture` always restarts.
+
+```python
+dmm = DirichletMixture(n_components=2, restart_collapsed=True).fit(data)
+```
+
 ### WAIC
 
 Set `compute_waic=True` to also compute the widely applicable information criterion (WAIC). EM only finds the posterior mode, so pyDMM draws `n_waic_draws` (default 1,000) parameter sets from a joint Laplace approximation around it. The covariance is the inverse observed information of the mixture over log α and the weight logits. It includes the uncertainty in which cluster each sample belongs to, which is what penalises redundant or split clusters. Directions the data barely constrain, which overfitted fits have, get their posterior SD capped at 1; `goodness_of_fit["WAIC_n_regularised"]` reports how many. WAIC is off by default, so ordinary fits are not slowed down.
@@ -274,6 +282,7 @@ Inherits from `sklearn.base.BaseEstimator` and `sklearn.base.ClassifierMixin` fo
 - `n_components` (int): Number of mixture components (default: 2)
 - `verbose` (bool): Print fitting progress (default: False)
 - `random_state` (int): Random seed for reproducibility (default: 42)
+- `restart_collapsed` (bool): Restart once from hard k-means when the fit ends with all components equal (default: False). See [Collapsed fits](#collapsed-fits)
 
 **Methods:**
 - `fit(X, y=None)`: Fit the model to data X (y is ignored, for sklearn compatibility)

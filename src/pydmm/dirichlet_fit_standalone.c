@@ -117,6 +117,34 @@ static double neg_log_likelihood(double *adW, double** aadLambda,
     return -dRet -dL5 - dL6 -dL7 -dL8;
 }
 
+/* simple EM algorithm; returns the final negative log likelihood */
+static double em(struct data_t *data, double **aadZ, double *adW,
+                 double **aadLambda)
+{
+    const int N = data->N, K = data->K;
+    int i, k, iter = 0;
+    double dNLL = 0.0, dNew, dChange = BIG_DBL;
+
+    while (dChange > 1.0e-6 && iter < 100) {
+        calc_z(aadZ, data, adW, aadLambda); /* latent var expectation */
+        for (k = 0; k < K; k++) /* mixture components, given pi */
+            optimise_lambda_k(aadLambda[k], data, aadZ[k]);
+        for (k = 0; k < K; k++) { /* current likelihood & weights */
+            adW[k] = 0.0;
+            for(i = 0; i < N; i++)
+                adW[k] += aadZ[k][i];
+        }
+
+        dNew = neg_log_likelihood(adW, aadLambda, data);
+        dChange = fabs(dNLL - dNew);
+        dNLL = dNew;
+        iter++;
+        if (data->verbose && (iter % 10) == 0)
+            printf("    iteration %d change %f\n", iter, dChange);
+    }
+    return dNLL;
+}
+
 static void group_output(struct data_t *data, double** aadZ)
 {
     const int N = data->N, K = data->K;
@@ -202,29 +230,26 @@ void dirichlet_fit_main(struct data_t *data, int rseed)
         optimise_lambda_k(aadLambda[k], data, aadZ[k]);
     }
 
-    /* simple EM algorithm */
-    int iter = 0;
-    double dNLL = 0.0, dNew, dChange = BIG_DBL;
-
     if (data->verbose)
         printf("  Expectation Maximization\n");
-    while (dChange > 1.0e-6 && iter < 100) {
-        calc_z(aadZ, data, adW, aadLambda); /* latent var expectation */
-        for (k = 0; k < K; k++) /* mixture components, given pi */
-            optimise_lambda_k(aadLambda[k], data, aadZ[k]);
-        for (k = 0; k < K; k++) { /* current likelihood & weights */
+    double dNLL = em(data, aadZ, adW, aadLambda);
+
+    /* soft k-means can start all components (almost) equal when the samples'
+       compositions are close; EM then stays at that saddle point. Optional,
+       because it changes the output for such data. */
+    if (data->restart_collapsed && K > 1 && collapsed(data, aadZ, adW)) {
+        if (data->verbose)
+            printf("  Components identical; restarting from hard k-means\n");
+        hard_kmeans(data, aadZ, ptGSLRNG);
+        for (k = 0; k < K; k++) {
             adW[k] = 0.0;
-            for(i = 0; i < N; i++)
+            for (i = 0; i < N; i++)
                 adW[k] += aadZ[k][i];
         }
-
-        dNew = neg_log_likelihood(adW, aadLambda, data);
-        dChange = fabs(dNLL - dNew);
-        dNLL = dNew;
-        iter++;
-        /* User interrupt check removed */
-        if (data->verbose && (iter % 10) == 0)
-            printf("    iteration %d change %f\n", iter, dChange);
+        /* start each component from the collapsed (pooled) estimate */
+        for (k = 0; k < K; k++)
+            optimise_lambda_k(aadLambda[k], data, aadZ[k]);
+        dNLL = em(data, aadZ, adW, aadLambda);
     }
 
     /* hessian */

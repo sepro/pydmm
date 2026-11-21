@@ -14,10 +14,20 @@ extern const double GAMMA_ITA;
 extern const double GAMMA_NU;
 extern const int MAX_ITER;
 extern const size_t MAX_GRAD_ITER;
+extern const double COLLAPSE_THRESH;
+extern const int N_KMEANS_STARTS;
 
 /* soft k-means on relative abundances; fills weights, assignments and means */
 void kmeans(struct data_t *data, gsl_rng *ptGSLRNG,
             double* adW, double **aadZ, double **aadMu);
+
+/* 1 if every sample has (almost) the same assignments, i.e. EM stopped at the
+   symmetric saddle point where all components are equal */
+int collapsed(const struct data_t *data, double **aadZ, const double *adW);
+
+/* hard k-means with k-means++ seeding (best of N_KMEANS_STARTS); fills aadZ
+   with 0/1 assignments. Restart for a collapsed soft k-means start. */
+void hard_kmeans(const struct data_t *data, double **aadZ, gsl_rng *ptGSLRNG);
 
 /* weighted negative log evidence (+ Gamma prior) of one Dirichlet-multinomial,
    its gradient w.r.t. lambda = log(alpha), and both together (for GSL) */

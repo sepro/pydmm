@@ -11,6 +11,9 @@
 
 struct data_t {
     bool verbose;
+    /* restart from hard k-means when EM ends with all components equal
+       (only read by dirichlet_fit_main) */
+    bool restart_collapsed;
     int N, S, K;
     const int *aanX;
     double* adPi;
@@ -28,4 +31,4 @@ struct data_t {
 
 void dirichlet_fit_main(struct data_t *data, int rseed);
 
-#endif
+#endif

@@ -43,8 +43,12 @@ A Rust port exists on the `rust` branch but was slower than the C core; `main` s
     and `pydmm_core.dirichlet_tree_fit` (validates the tree before fitting)
   - `src/pydmm/dirichlet_fit_standalone.c/.h`: DMM EM, likelihood, BIC/AIC/Laplace
   - `src/pydmm/dirichlet_node.c/.h`: shared by both models: soft k-means, weighted
-    DM objective/gradient, BFGS (`optimise_lambda_k`), `neg_log_evidence_i`, `hessian`.
-    Moved unchanged from the DMM file; DMM output is bit-identical to before.
+    DM objective/gradient, BFGS (`optimise_lambda_k`), `neg_log_evidence_i`, `hessian`,
+    and the collapse restart (`collapsed`, `hard_kmeans`). Moved unchanged from the
+    DMM/DTMM files; DMM output is bit-identical to before.
+  - Collapse restart: soft k-means can start all components equal (very similar
+    compositions); EM then stays at that saddle (all z = 1/K). The DTMM always restarts
+    from hard k-means; the DMM only with `restart_collapsed=True` (off by default).
   - `src/pydmm/dirichlet_tree_fit.c/.h`: DTMM EM (per-node `data_t` views), node
     selection rounds, block-diagonal Hessian, criteria. `Fit/*` outputs are `(n_edges, K)`.
   - `src/pydmm/dirichlet_fit_main.c/.h`: original R-package version, not compiled
@@ -127,12 +131,13 @@ validation/waic/.venv-prodiphy/bin/python validation/waic/make_fixtures.py   # t
 - **`test_sklearn_compatibility.py`**: scikit-learn API conformance
 - **`test_dtmm.py`**: `Tree` builders, C tree fit (star == DMM, NLE vs Python likelihood, invalid trees), node selection, `DirichletTreeMixture` API and sklearn compatibility
 - **`test_calibration.py`**: tempered assignments, `temperature="auto"` estimator, default path unchanged
+- **`test_bug_fixes.py`**: regression tests for bugs fixed from `BUGS.md`
 - **`test_waic.py`**: Hessian export, pointwise log-likelihood vs PyMC, WAIC vs arviz, prodiphy draws through pyDMM code (reference values in `tests/data/waic/`)
 - **`conftest.py`**: Shared test fixtures
 
 ## Key Design Patterns
 
-1. **Scikit-learn API**: `fit()`, `predict_proba()`, `fit_predict()`; constructor params are stored unchanged (`n_components`, `verbose`, `random_state`, `compute_waic`, `n_waic_draws`, `temperature`)
+1. **Scikit-learn API**: `fit()`, `predict_proba()`, `fit_predict()`; constructor params are stored unchanged (`n_components`, `verbose`, `random_state`, `compute_waic`, `n_waic_draws`, `temperature`, `restart_collapsed`)
 2. **Pandas Integration**: DataFrames preserve sample/feature names through the pipeline
 3. **Opt-in extras**: WAIC (and the Hessian export it needs) only run when `compute_waic=True`, and tempering only when `temperature` is set, so the default fit path stays as fast as before and its output bit-identical. New output-changing methods must follow the same pattern (off by default)
 4. **Result Object Pattern**: `DirichletMixtureResult` gives structured access to all outputs

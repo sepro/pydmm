@@ -353,7 +353,7 @@ class TestSklearnCompatibility:
         params = dmm.get_params()
         assert set(params.keys()) == {'n_components', 'verbose', 'random_state',
                                       'compute_waic', 'n_waic_draws',
-                                      'temperature'}
+                                      'temperature', 'restart_collapsed'}
 
         # set_params should allow valid updates
         dmm.set_params(n_components=5, verbose=True)

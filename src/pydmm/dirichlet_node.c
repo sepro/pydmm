@@ -23,6 +23,9 @@ const double GAMMA_ITA = 0.1;
 const double GAMMA_NU = 0.1;
 const int MAX_ITER = 1000;
 const size_t MAX_GRAD_ITER = 1000;
+/* largest |z_ik - w_k / N| below which all components are taken to be equal */
+const double COLLAPSE_THRESH = 1.0e-3;
+const int N_KMEANS_STARTS = 5;
 
 void kmeans(struct data_t *data, gsl_rng *ptGSLRNG,
                    double* adW, double **aadZ, double **aadMu)
@@ -105,6 +108,131 @@ void kmeans(struct data_t *data, gsl_rng *ptGSLRNG,
 
     free(aadY);
     free(adMu);
+}
+
+/* 1 if every sample has (almost) the same assignments, i.e. EM stopped at
+   the symmetric saddle point where all components are equal */
+int collapsed(const struct data_t *data, double **aadZ,
+              const double *adW)
+{
+    int i, k;
+    for (k = 0; k < data->K; k++)
+        for (i = 0; i < data->N; i++)
+            if (fabs(aadZ[k][i] - adW[k] / data->N) > COLLAPSE_THRESH)
+                return 0;
+    return 1;
+}
+
+/* Hard k-means (Lloyd) on relative abundances with k-means++ seeding, best
+   of N_KMEANS_STARTS by within-cluster sum of squares. Used when the soft
+   k-means start collapses, which happens when many features make all
+   samples' compositions close. Fills aadZ with 0/1 assignments. */
+void hard_kmeans(const struct data_t *data, double **aadZ,
+                 gsl_rng *ptGSLRNG)
+{
+    const int N = data->N, S = data->S, K = data->K, *aanX = data->aanX;
+    int i, j, k, start, iter;
+    double dBest = BIG_DBL;
+    double *aadY = (double *) calloc(N * S, sizeof(double));
+    double *aadC = (double *) calloc(K * S, sizeof(double));
+    double *adD = (double *) calloc(N, sizeof(double));
+    int *anLabel = (int *) calloc(N, sizeof(int));
+    int *anCount = (int *) calloc(K, sizeof(int));
+
+    for (i = 0; i < N; i++) {
+        double dTotal = 0.0;
+        for (j = 0; j < S; j++)
+            dTotal += aanX[j * N + i];
+        for (j = 0; j < S; j++)
+            aadY[i * S + j] = dTotal > 0.0 ? aanX[j * N + i] / dTotal : 0.0;
+    }
+
+    for (start = 0; start < N_KMEANS_STARTS; start++) {
+        /* k-means++ seeding */
+        int c = gsl_rng_uniform_int(ptGSLRNG, N);
+        for (j = 0; j < S; j++)
+            aadC[j] = aadY[c * S + j];
+        for (k = 1; k < K; k++) {
+            double dSum = 0.0, dU;
+            for (i = 0; i < N; i++) {
+                int m;
+                adD[i] = BIG_DBL;
+                for (m = 0; m < k; m++) {
+                    double dDist = 0.0;
+                    for (j = 0; j < S; j++) {
+                        const double dDiff = aadY[i * S + j] - aadC[m * S + j];
+                        dDist += dDiff * dDiff;
+                    }
+                    if (dDist < adD[i])
+                        adD[i] = dDist;
+                }
+                dSum += adD[i];
+            }
+            dU = gsl_rng_uniform(ptGSLRNG) * dSum;
+            for (c = 0; c < N - 1; c++) {
+                dU -= adD[c];
+                if (dU <= 0.0)
+                    break;
+            }
+            for (j = 0; j < S; j++)
+                aadC[k * S + j] = aadY[c * S + j];
+        }
+
+        /* Lloyd iterations */
+        double dInertia = 0.0;
+        for (iter = 0; iter < MAX_ITER; iter++) {
+            int nChanged = 0;
+            dInertia = 0.0;
+            for (i = 0; i < N; i++) {
+                int kBest = 0;
+                double dMin = BIG_DBL;
+                for (k = 0; k < K; k++) {
+                    double dDist = 0.0;
+                    for (j = 0; j < S; j++) {
+                        const double dDiff = aadY[i * S + j] - aadC[k * S + j];
+                        dDist += dDiff * dDiff;
+                    }
+                    if (dDist < dMin) {
+                        dMin = dDist;
+                        kBest = k;
+                    }
+                }
+                if (iter == 0 || anLabel[i] != kBest)
+                    nChanged++;
+                anLabel[i] = kBest;
+                dInertia += dMin;
+            }
+            if (iter > 0 && nChanged == 0)
+                break;
+            for (k = 0; k < K; k++) {
+                anCount[k] = 0;
+                for (j = 0; j < S; j++)
+                    aadC[k * S + j] = 0.0;
+            }
+            for (i = 0; i < N; i++) {
+                anCount[anLabel[i]]++;
+                for (j = 0; j < S; j++)
+                    aadC[anLabel[i] * S + j] += aadY[i * S + j];
+            }
+            for (k = 0; k < K; k++)
+                if (anCount[k] > 0)
+                    for (j = 0; j < S; j++)
+                        aadC[k * S + j] /= anCount[k];
+        }
+
+        if (dInertia < dBest) {
+            dBest = dInertia;
+            for (i = 0; i < N; i++)
+                for (k = 0; k < K; k++)
+                    aadZ[k][i] = anLabel[i] == k ? 1.0 : 0.0;
+        }
+    }
+
+    free(anCount);
+    free(anLabel);
+    free(adD);
+    free(aadC);
+    free(aadY);
 }
 
 double neg_log_evidence_lambda_pi(const gsl_vector *lambda,
