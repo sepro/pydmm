@@ -23,7 +23,7 @@ import numpy as np
 import pandas as pd
 from scipy.special import gammaln
 
-from .calibration import (estimate_temperature, tempered_responsibilities,
+from .calibration import (resolve_temperature, tempered_responsibilities,
                           validate_temperature)
 from .core import DirichletMixture, DirichletMixtureResult
 from .tree import Tree
@@ -136,8 +136,10 @@ class DirichletTreeMixture(DirichletMixture):
             between clusters then do not add noise to the assignments.
         verbose (bool): Whether to print fitting progress (default: False)
         random_state (int): Random seed for reproducibility (default: 42)
-        temperature (None, float or "auto"): Temper the assignment
-            probabilities, as in ``DirichletMixture`` (default: None, off)
+        temperature (None, float, "auto" or "one-step"): Temper the assignment
+            probabilities, as in ``DirichletMixture`` (default: None, off).
+            On real data "auto" can make a DTMM almost uniform (BUGS.md,
+            bug 5); "one-step" does not have this problem.
 
     Attributes:
         result_ (DirichletTreeMixtureResult): Fitting results (after fit)
@@ -224,10 +226,7 @@ class DirichletTreeMixture(DirichletMixture):
         result = self.result_
         log_lik = tree_component_log_likelihood(
             X_array, self.tree_, result.parameter_estimates["Estimate"])
-        if isinstance(self.temperature, str):  # "auto"
-            tau = estimate_temperature(log_lik, result.mixture_weights)
-        else:
-            tau = float(self.temperature)
+        tau = resolve_temperature(self.temperature, log_lik, result.mixture_weights)
         result.group_assignments_untempered = result.group_assignments
         result.group_assignments = tempered_responsibilities(
             log_lik, result.mixture_weights, tau)

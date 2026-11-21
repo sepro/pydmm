@@ -10,7 +10,7 @@ from scipy.special import gammaln
 from sklearn.base import BaseEstimator, ClassifierMixin
 
 from .waic import compute_waic
-from .calibration import (component_log_likelihood, estimate_temperature,
+from .calibration import (component_log_likelihood, resolve_temperature,
                           tempered_responsibilities, validate_temperature)
 
 try:
@@ -188,7 +188,7 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
             posterior SD was capped) to ``result_.goodness_of_fit``. WAIC is on
             the same negative log-likelihood scale as BIC/AIC (lower is better).
         n_waic_draws (int): Number of posterior draws for WAIC (default: 1000)
-        temperature (None, float or "auto"): Temper the cluster assignment
+        temperature (None, float, "auto" or "one-step"): Temper the cluster assignment
             probabilities to correct for over-confidence (default: None, off).
             The usual responsibilities treat every feature as independent
             evidence; correlated features and features that vary more than the
@@ -196,7 +196,10 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
             (0, 1], assignments become z_ik ∝ (w_k * DM(x_i | alpha_k)) ** tau,
             which keeps each sample's most likely component unchanged.
             "auto" estimates tau from the fitted model without labels (Good's
-            weight-of-evidence condition, see ``pydmm.calibration``). Applies to
+            weight-of-evidence condition, see ``pydmm.calibration``), iterated
+            to a fixed point. "one-step" uses only the first step of that
+            iteration (the untempered assignments as weights); it cannot drift
+            to a too-small tau on heavy-tailed data. Applies to
             ``result_.group_assignments`` and ``predict_proba``; the fitted
             parameters, NLE, BIC, AIC and WAIC are not changed, and the
             untempered assignments stay in
@@ -385,10 +388,7 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
         result = self.result_
         alpha = result.parameter_estimates["Estimate"].T  # (K, S)
         log_lik = component_log_likelihood(X_array, alpha)
-        if isinstance(self.temperature, str):  # "auto"
-            tau = estimate_temperature(log_lik, result.mixture_weights)
-        else:
-            tau = float(self.temperature)
+        tau = resolve_temperature(self.temperature, log_lik, result.mixture_weights)
         result.group_assignments_untempered = result.group_assignments
         result.group_assignments = tempered_responsibilities(
             log_lik, result.mixture_weights, tau)

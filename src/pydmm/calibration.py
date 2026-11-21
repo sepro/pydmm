@@ -24,7 +24,9 @@ consistency condition for a weight of evidence: if the log-likelihood ratio
 between components k and l is roughly normal for samples from k, and
 calibrated, its variance equals twice its mean. A log-likelihood ratio inflated
 by a factor c has its mean multiplied by c and its variance by c**2, so
-tau = 2 * mean / var estimates 1 / c.
+tau = 2 * mean / var estimates 1 / c. ``temperature="auto"`` iterates this to a
+fixed point (the weights are the tempered assignments); ``"one-step"`` stops
+after the first step (the weights are the untempered assignments).
 
 References:
     Good, I.J. (1985). Weight of evidence: a brief survey. Bayesian Statistics 2.
@@ -39,21 +41,43 @@ from scipy.special import logsumexp
 
 from .waic import _SparseCounts, _dm_log_likelihood
 
-# Smallest tau "auto" will return; below this the assignments are essentially
-# the mixture weights and the estimate is no longer meaningful.
+# Strings accepted for ``temperature`` besides None and a number.
+TEMPERATURE_METHODS = ("auto", "one-step")
+
+_TEMPERATURE_ERROR = 'temperature must be None, "auto", "one-step" or a number in (0, 1]'
+
+# Smallest tau "auto" and "one-step" will return; below this the assignments
+# are essentially the mixture weights and the estimate is no longer meaningful.
 MIN_TEMPERATURE = 1e-3
 
 
 def validate_temperature(temperature) -> None:
-    """Raise ValueError unless temperature is None, "auto" or a float in (0, 1]."""
-    if temperature is None or (isinstance(temperature, str) and temperature == "auto"):
+    """Raise ValueError unless temperature is None, "auto", "one-step" or a float in (0, 1]."""
+    if temperature is None:
         return
+    if isinstance(temperature, str):
+        if temperature in TEMPERATURE_METHODS:
+            return
+        raise ValueError(_TEMPERATURE_ERROR)
     if isinstance(temperature, (bool, np.bool_)) or not isinstance(
         temperature, (int, float, np.integer, np.floating)
     ):
-        raise ValueError('temperature must be None, "auto" or a number in (0, 1]')
+        raise ValueError(_TEMPERATURE_ERROR)
     if not (0.0 < float(temperature) <= 1.0):
-        raise ValueError('temperature must be None, "auto" or a number in (0, 1]')
+        raise ValueError(_TEMPERATURE_ERROR)
+
+
+def resolve_temperature(temperature, log_lik: np.ndarray, weights: np.ndarray) -> float:
+    """
+    The tau for a ``temperature`` setting that is not None.
+
+    "auto" runs the fixed-point iteration of ``estimate_temperature`` to
+    convergence, "one-step" only its first step; a number is returned as is.
+    """
+    if isinstance(temperature, str):
+        max_iter = 1 if temperature == "one-step" else 200
+        return estimate_temperature(log_lik, weights, max_iter=max_iter)
+    return float(temperature)
 
 
 def component_log_likelihood(X: np.ndarray, alpha: np.ndarray) -> np.ndarray:
@@ -140,12 +164,21 @@ def estimate_temperature(
     (Good's weight-of-evidence condition), repeat. The result is clipped to
     [MIN_TEMPERATURE, 1]: tau = 1 means no correction is needed.
 
+    ``max_iter=1`` gives the one-step estimate (``temperature="one-step"``):
+    Good's condition with the untempered assignments as weights. These weights
+    do not depend on tau, so the estimate cannot drift. With heavy-tailed
+    log-likelihood ratios (for example a DirichletTreeMixture on real data)
+    the full iteration can drift to a tau that is much too small (BUGS.md,
+    bug 5); the one-step estimate does not have this problem.
+
     Assumes the log-likelihood ratios are roughly normal within a component.
     Tempering cannot repair a wrong partition, only lower its confidence.
 
     Parameters:
         log_lik: per-component log-likelihoods, shape (N, K)
         weights: mixture weights, shape (K,)
+        max_iter: maximum number of fixed-point steps (1 = one-step estimate)
+        tol: stop when tau changes by less than this
 
     Returns:
         float tau in [MIN_TEMPERATURE, 1]; 1.0 for a single component or when

@@ -193,3 +193,6 @@ tmp/
 # WAIC validation: separate prodiphy environment and full PyMC traces
 validation/waic/.venv-prodiphy/
 validation/waic/results/traces/
+
+# AGP case study: code, data, results, figures and report stay local only
+validation/case_study/

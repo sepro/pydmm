@@ -22,8 +22,12 @@ A Rust port exists on the `rust` branch but was slower than the C core; `main` s
   z_ik ∝ (w_k DM(x_i|α_k))^τ, applied after the fit (α, w, NLE/BIC/AIC/WAIC and the
   argmax are unchanged). `estimate_temperature` (`temperature="auto"`) uses Good's
   weight-of-evidence condition (calibrated normal LLR: var = 2·mean), pooled over
-  component pairs. Corrects over-confidence from correlated features and from the
-  Dirichlet's fixed per-feature variance; cannot repair a wrong partition.
+  component pairs, iterated to a fixed point (weights = tempered assignments).
+  `temperature="one-step"` is the first iterate only (`max_iter=1`, weights =
+  untempered assignments); it cannot drift, which "auto" does on heavy-tailed DTMM
+  ratios (BUGS.md bug 5). Both go through `resolve_temperature`. Corrects
+  over-confidence from correlated features and from the Dirichlet's fixed
+  per-feature variance; cannot repair a wrong partition.
 - **Dirichlet-tree mixture** (`src/pydmm/dtmm.py`, `src/pydmm/tree.py`):
   `DirichletTreeMixture` subclasses `DirichletMixture` (reuses input validation,
   `predict`, `fit_predict`, `score`). Each internal node of a `Tree` over the features

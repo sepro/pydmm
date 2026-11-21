@@ -7,7 +7,8 @@ import pytest
 from sklearn.base import clone
 
 from pydmm import DirichletMixture
-from pydmm.calibration import (component_log_likelihood, estimate_temperature,
+from pydmm.calibration import (MIN_TEMPERATURE, _pooled_weight_of_evidence,
+                               component_log_likelihood, estimate_temperature,
                                tempered_responsibilities, validate_temperature)
 
 
@@ -151,6 +152,52 @@ class TestAutoTemperature:
         assert estimate_temperature(np.zeros((50, 2)), np.array([0.5, 0.5])) == 1.0
 
 
+class TestOneStepTemperature:
+    def test_is_first_iterate(self, data):
+        """One-step tau = Good's condition with the untempered assignments as weights."""
+        X, _ = data
+        m = DirichletMixture(n_components=2, random_state=1, temperature="one-step").fit(X)
+        alpha = m.result_.parameter_estimates["Estimate"].T
+        ll = component_log_likelihood(X, alpha)
+        w = m.result_.mixture_weights
+        z1 = tempered_responsibilities(ll, w, 1.0)
+        expected = float(np.clip(_pooled_weight_of_evidence(ll, z1), MIN_TEMPERATURE, 1.0))
+        assert m.temperature_ == pytest.approx(expected, rel=1e-12)
+        assert estimate_temperature(ll, w, max_iter=1) == pytest.approx(expected, rel=1e-12)
+        np.testing.assert_allclose(m.result_.group_assignments,
+                                   tempered_responsibilities(ll, w, m.temperature_))
+
+    def test_fit_and_argmax_unchanged(self, data):
+        X, _ = data
+        plain = DirichletMixture(n_components=2, random_state=1).fit(X)
+        one = DirichletMixture(n_components=2, random_state=1, temperature="one-step").fit(X)
+        assert 0.0 < one.temperature_ <= 1.0
+        assert one.result_.temperature == one.temperature_
+        np.testing.assert_array_equal(one.result_.parameter_estimates["Estimate"],
+                                      plain.result_.parameter_estimates["Estimate"])
+        np.testing.assert_array_equal(one.result_.group_assignments_untempered,
+                                      plain.result_.group_assignments)
+        np.testing.assert_array_equal(one.predict(X), plain.predict(X))
+        np.testing.assert_allclose(one.predict_proba(X), one.result_.group_assignments,
+                                   atol=1e-10)
+
+    def test_does_not_drift(self):
+        """The first step ignores later re-weighting: it can differ from "auto"."""
+        rng = np.random.default_rng(0)
+        # heavy-tailed log-likelihood ratios: the fixed point drifts below step 1
+        n = 400
+        lab = rng.integers(0, 2, n)
+        d = rng.standard_t(1.5, n) * 3.0 + 6.0
+        ll = np.column_stack([np.where(lab == 0, d, -d), np.zeros(n)])
+        w = np.array([0.5, 0.5])
+        one = estimate_temperature(ll, w, max_iter=1)
+        auto = estimate_temperature(ll, w)
+        assert one >= auto
+
+    def test_clone_keeps_setting(self):
+        assert clone(DirichletMixture(temperature="one-step")).temperature == "one-step"
+
+
 class TestHelpers:
     def test_component_log_likelihood_matches_core(self, data):
         X, _ = data
@@ -173,7 +220,8 @@ class TestHelpers:
         expected /= expected.sum(axis=1, keepdims=True)
         np.testing.assert_allclose(z, expected)
 
-    @pytest.mark.parametrize("bad", [0, 0.0, -0.5, 1.5, "fast", True, [0.5]])
+    @pytest.mark.parametrize("bad", [0, 0.0, -0.5, 1.5, "fast", "one_step", "Auto",
+                                     True, [0.5]])
     def test_invalid_temperature(self, bad, data):
         with pytest.raises(ValueError):
             validate_temperature(bad)
@@ -181,6 +229,7 @@ class TestHelpers:
         with pytest.raises(ValueError):
             DirichletMixture(temperature=bad).fit(X)
 
-    @pytest.mark.parametrize("good", [None, "auto", 1, 1.0, 0.25, np.float64(0.5)])
+    @pytest.mark.parametrize("good", [None, "auto", "one-step", 1, 1.0, 0.25,
+                                      np.float64(0.5)])
     def test_valid_temperature(self, good):
         validate_temperature(good)

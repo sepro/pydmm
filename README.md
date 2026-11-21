@@ -146,11 +146,12 @@ WAIC estimates out-of-sample predictive accuracy, so, like AIC, its penalty does
 
 The usual assignment probabilities are often too close to 0 or 1. The Dirichlet-multinomial treats every feature as independent evidence, so features that rise and fall together (taxa of one guild, ASVs of one strain) count the same signal several times. The Dirichlet also fixes how much each feature may vary, so fluctuations in abundant features are read as strong evidence. In simulations pyDMM reported about 98% confidence for samples it assigned correctly only 70–85% of the time.
 
-Set `temperature` to temper the probabilities. With a value τ in (0, 1] they become z<sub>ik</sub> ∝ (w<sub>k</sub> · DM(x<sub>i</sub> | α<sub>k</sub>))<sup>τ</sup>. `"auto"` estimates τ from the fitted model without labels: a calibrated log-likelihood ratio between two components that is roughly normal has variance equal to twice its mean (Good's weight-of-evidence condition), and an inflated one does not. Tempering is off by default.
+Set `temperature` to temper the probabilities. With a value τ in (0, 1] they become z<sub>ik</sub> ∝ (w<sub>k</sub> · DM(x<sub>i</sub> | α<sub>k</sub>))<sup>τ</sup>. `"auto"` estimates τ from the fitted model without labels: a calibrated log-likelihood ratio between two components that is roughly normal has variance equal to twice its mean (Good's weight-of-evidence condition), and an inflated one does not. `"auto"` iterates this to a fixed point: each step weights the samples with the tempered probabilities of the previous step. `"one-step"` stops after the first step, so the weights are the untempered probabilities. On heavy-tailed data the iteration can drift to a τ that is much too small, and `"one-step"` avoids that; on real data it gave probabilities closer to bootstrap stability for the Dirichlet-tree mixture. Tempering is off by default.
 
 ```python
 dmm = DirichletMixture(n_components=3, temperature="auto").fit(data)
 dmm.temperature_                              # estimated tau, e.g. 0.2
+# temperature="one-step" (first step only) or a fixed value, e.g. temperature=0.3
 dmm.result.group_assignments                  # tempered probabilities
 dmm.result.group_assignments_untempered       # the usual EM responsibilities
 dmm.predict_proba(new_data)                   # tempered with the same tau
@@ -180,7 +181,7 @@ DirichletTreeMixture(n_components=3).fit(counts)   # no tree: built from feature
 
 Trees can also come from a SciPy linkage matrix (`Tree.from_linkage`), a parent array (`Tree.from_parents`) or `Tree.from_correlation(X)`. With `Tree.star(n_features)` and `node_selection=False` the model is exactly the DMM.
 
-By default only nodes whose parameters differ enough between clusters to pay a BIC penalty are fitted per cluster (`node_selection=True`); the others are shared and do not influence the assignments. This matters: without it, nodes that do not differ add noise and the DTMM clusters less accurately than the DMM. `temperature` works as for `DirichletMixture`. WAIC is not available for the DTMM yet.
+By default only nodes whose parameters differ enough between clusters to pay a BIC penalty are fitted per cluster (`node_selection=True`); the others are shared and do not influence the assignments. This matters: without it, nodes that do not differ add noise and the DTMM clusters less accurately than the DMM. `temperature` works as for `DirichletMixture`, but on real data `"auto"` can over-correct a DTMM to almost uniform probabilities (`BUGS.md`, bug 5). Use `temperature="one-step"` with the DTMM. WAIC is not available for the DTMM yet.
 
 In simulations (`docs/dtmm_comparison.md`), with the true tree the DTMM's probabilities matched an oracle that knows the generating parameters (log-loss 0.41 vs 1.45 for the DMM) when whole clades bloomed together, and with the default data-built tree it removed the DMM's wrong splits on data where features differ in variability (accuracy 0.945 vs 0.896). It was worse than the DMM when strongly correlated modules dominated, even though BIC preferred it, so compare both models on your data. A fit takes about 1.5× as long as a DMM fit with a taxonomy-like tree and about 2.7× with the default data-built tree.
 
@@ -298,7 +299,7 @@ Subclass of `DirichletMixture`, with the same methods and attributes.
 - `node_selection` (bool): Share each node's parameters across components unless they differ enough to pay a BIC penalty (default: True)
 - `verbose` (bool): Print fitting progress (default: False)
 - `random_state` (int): Random seed for reproducibility (default: 42)
-- `temperature` (None, float or "auto"): Temper the assignment probabilities (default: None, off)
+- `temperature` (None, float, "auto" or "one-step"): Temper the assignment probabilities (default: None, off)
 
 **Attributes (after fitting):** `result_` (`DirichletTreeMixtureResult`), `tree_` (the tree used, leaves in the data's column order), `classes_`, `feature_names_in_`, `temperature_`
 
