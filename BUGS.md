@@ -2,22 +2,6 @@
 
 This file lists open bugs. Each entry gives the symptom, the cause and the steps to reproduce it. The text uses ASD-STE100 Simplified Technical English.
 
-## 3. The soft k-means start reads memory that is not initialised
-
-**Status:** Open. Found by code review on 20 Nov 2026.
-
-**Symptom:** None seen. The result can change between runs or between computers.
-
-**Cause:** `dirichlet_fit_main()` allocates `aadLambda` with `calloc`. The file maps `calloc` to `malloc`, so the memory is not set to zero. The code then gives `aadLambda` to `kmeans()` as `aadMu`. In the first iteration, `kmeans()` reads `aadMu` to calculate `dMaxChange`.
-
-**To reproduce:**
-
-1. Build the extension with `-fsanitize=memory` (clang), or run the tests with `valgrind --track-origins=yes`.
-2. Fit `DirichletMixture` on any data.
-3. Make sure that the tool reports a read of uninitialised memory in `kmeans()`.
-
-**Possible fix:** Set `aadLambda` to zero before the call to `kmeans()`. This fix can change the output of `DirichletMixture`. Compare the results with the saved baseline first.
-
 ## 4. The random number generator is not released
 
 **Status:** Open. Found by code review on 20 Nov 2026.

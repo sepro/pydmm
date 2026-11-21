@@ -212,7 +212,11 @@ void dirichlet_fit_main(struct data_t *data, int rseed)
         aadErr[k] = aadErr[0] + k * S;
     }
 
-    /* soft k means initialiser */
+    /* soft k means initialiser; it reads the previous means (aadLambda) in
+       its first iteration, and calloc is malloc here, so start from zero */
+    for (k = 0; k < K; k++)
+        for (j = 0; j < S; j++)
+            aadLambda[k][j] = 0.0;
     kmeans(data, ptGSLRNG, adW, aadZ, aadLambda);
     for (k = 0; k < K; k++) {
         adW[k] = 0.0;
