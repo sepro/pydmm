@@ -382,7 +382,7 @@ class TestSklearnCompatibility:
     def test_get_params(self):
         params = DirichletTreeMixture().get_params()
         assert set(params) == {"n_components", "tree", "node_selection", "verbose",
-                               "random_state", "temperature"}
+                               "random_state", "temperature", "n_clades", "n_bootstrap"}
 
     def test_set_params_and_clone(self, clade):
         _, _, tree = clade
@@ -415,3 +415,95 @@ class TestSklearnCompatibility:
         grid = GridSearchCV(DirichletTreeMixture(tree=tree), {"n_components": [1, 2]}, cv=2)
         grid.fit(X)
         assert grid.best_params_["n_components"] in (1, 2)
+
+
+class TestCladeTree:
+    def test_from_clusters(self):
+        # clusters {0, 2}, {1, 3, 4}, {5} (singleton hangs from the root)
+        t = Tree.from_clusters([7, 3, 7, 3, 3, 9])
+        assert t.n_nodes == 3
+        root = t.n_nodes - 1
+        assert sorted(map(sorted, (t.leaves(u) for u in range(root)))) == [[0, 2], [1, 3, 4]]
+        assert 5 in t.children(root)
+        assert t.leaves(root) == list(range(6))
+
+    def test_from_clusters_names(self):
+        t = Tree.from_clusters([0, 0, 1, 1], leaf_names=list("abcd"))
+        assert list(t.leaf_names) == list("abcd")
+
+    def test_from_correlation_n_clades(self, clade):
+        X, _, _ = clade
+        full = Tree.from_correlation(X)
+        cut = Tree.from_correlation(X, n_clades=4)
+        assert full.n_nodes == X.shape[1] - 1  # binary
+        assert cut.n_nodes <= 5
+        depth_two = all(c < cut.n_leaves for u in range(cut.n_nodes - 1) for c in cut.children(u))
+        assert depth_two
+        with pytest.raises(ValueError):
+            Tree.from_correlation(X, n_clades=0)
+
+    def test_from_correlation_recovers_clades(self, clade):
+        X, _, tree = clade
+        cut = Tree.from_correlation(X, n_clades=4)
+        found = sorted(sorted(cut.leaves(u)) for u in range(cut.n_nodes - 1))
+        true = sorted(sorted(tree.leaves(u)) for u in range(tree.n_nodes - 1))
+        assert found == true
+
+    def test_model_n_clades(self, clade):
+        X, labels, _ = clade
+        m = DirichletTreeMixture(n_components=2, n_clades=4).fit(X)
+        assert m.tree_.n_nodes <= 5
+        assert _accuracy(m.result_.group_assignments, labels) > 0.9
+
+    def test_n_clades_with_tree_raises(self, clade):
+        X, _, tree = clade
+        with pytest.raises(ValueError, match="n_clades"):
+            DirichletTreeMixture(tree=tree, n_clades=4).fit(X)
+
+
+class TestBootstrap:
+    def test_default_unchanged(self, clade):
+        X, _, tree = clade
+        a = DirichletTreeMixture(n_components=2, tree=tree).fit(X)
+        b = DirichletTreeMixture(n_components=2, tree=tree, n_bootstrap=0).fit(X)
+        np.testing.assert_array_equal(a.result_.group_assignments, b.result_.group_assignments)
+        assert a.bootstrap_ == []
+
+    def test_bagged_probabilities(self, clade):
+        X, labels, tree = clade
+        single = DirichletTreeMixture(n_components=2, tree=tree).fit(X)
+        m = DirichletTreeMixture(n_components=2, tree=tree, n_bootstrap=3).fit(X)
+        z = m.result_.group_assignments
+        assert len(m.bootstrap_) == 3
+        np.testing.assert_allclose(z.sum(1), 1.0)
+        np.testing.assert_allclose(m.predict_proba(X), z)
+        np.testing.assert_array_equal(m.result_.group_assignments_single,
+                                      single.result_.group_assignments)
+        # same NLE/parameters as the single fit; components aligned
+        assert m.result_.goodness_of_fit["NLE"] == single.result_.goodness_of_fit["NLE"]
+        assert np.mean(z.argmax(1) == single.result_.group_assignments.argmax(1)) > 0.95
+        assert _accuracy(z, labels) > 0.9
+
+    def test_rebuilds_data_tree(self, clade):
+        X, _, _ = clade
+        m = DirichletTreeMixture(n_components=2, n_clades=4, n_bootstrap=2).fit(X)
+        assert all(b["tree"] is not m.tree_ for b in m.bootstrap_)
+        np.testing.assert_allclose(m.predict_proba(X).sum(1), 1.0)
+
+    def test_dataframe_named_tree(self, clade):
+        X, _, tree = clade
+        names = [f"t{j}" for j in range(X.shape[1])]
+        rev = names[::-1]
+        groups = [[rev.index(names[j]) for j in tree.leaves(u)] for u in range(tree.n_nodes - 1)]
+        t = _clade_tree(groups, X.shape[1], leaf_names=rev)
+        df = pd.DataFrame(X, columns=names)
+        m = DirichletTreeMixture(n_components=2, tree=t, n_bootstrap=2).fit(df)
+        assert all(b["tree"] is m.tree_ for b in m.bootstrap_)
+        np.testing.assert_allclose(np.asarray(m.predict_proba(df)), m.result_.group_assignments)
+
+    def test_with_temperature(self, clade):
+        X, _, tree = clade
+        m = DirichletTreeMixture(n_components=2, tree=tree, n_bootstrap=2,
+                                 temperature="one-step").fit(X)
+        assert all(b["tau"] is not None for b in m.bootstrap_)
+        np.testing.assert_allclose(m.predict_proba(X), m.result_.group_assignments)

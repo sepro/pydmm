@@ -171,13 +171,25 @@ class Tree:
 
     @classmethod
     def from_correlation(cls, X: np.ndarray, method: str = "average",
-                         leaf_names: Optional[Sequence] = None) -> "Tree":
+                         leaf_names: Optional[Sequence] = None,
+                         n_clades: Optional[int] = None) -> "Tree":
         """
-        Data-driven binary tree: hierarchical clustering of the features on
+        Data-driven tree: hierarchical clustering of the features on
         1 - correlation of their centred log-ratios (pseudocount 0.5).
         Features that rise and fall together end up in the same clade.
+
+        Parameters:
+            X: counts (n_samples, n_features)
+            method: SciPy linkage method
+            leaf_names: optional feature names
+            n_clades: None (default) keeps the full binary dendrogram. An
+                integer cuts the dendrogram into at most that many clades and
+                returns a two-level tree, root -> clades -> features, like a
+                taxonomy with one rank (features in a clade of their own hang
+                from the root). Far fewer nodes than the binary tree; on real
+                microbiome data this gave much more reproducible clusters.
         """
-        from scipy.cluster.hierarchy import linkage
+        from scipy.cluster.hierarchy import fcluster, linkage
         from scipy.spatial.distance import squareform
 
         X = np.asarray(X, dtype=np.float64)
@@ -192,7 +204,31 @@ class Tree:
         np.fill_diagonal(D, 0.0)
         D = 0.5 * (D + D.T)
         Z = linkage(squareform(D, checks=False), method=method)
-        return cls.from_linkage(Z, leaf_names)
+        if n_clades is None:
+            return cls.from_linkage(Z, leaf_names)
+        if int(n_clades) < 1:
+            raise ValueError("n_clades must be a positive integer")
+        return cls.from_clusters(fcluster(Z, int(n_clades), criterion="maxclust"), leaf_names)
+
+    @classmethod
+    def from_clusters(cls, labels: Sequence, leaf_names: Optional[Sequence] = None) -> "Tree":
+        """
+        Two-level tree from a clustering of the features: root -> one node per
+        cluster with at least two features -> its features. Features alone in
+        their cluster are children of the root.
+        """
+        labels = np.asarray(labels)
+        S = len(labels)
+        if S < 2:
+            raise ValueError("a tree needs at least 2 features")
+        groups = [np.flatnonzero(labels == c) for c in pd.unique(labels)]
+        clades = [g for g in groups if len(g) > 1]
+        root = S + len(clades)
+        parents = np.full(root + 1, root)
+        parents[root] = -1
+        for u, g in enumerate(clades):
+            parents[g] = S + u
+        return cls.from_parents(parents, S, leaf_names)
 
     # ------------------------------------------------------------ queries
 

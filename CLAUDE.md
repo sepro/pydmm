@@ -39,6 +39,13 @@ A Rust port exists on the `rust` branch but was slower than the C core; `main` s
   `Tree.from_correlation` (average linkage on 1 − corr(CLR)). `Tree` stores CSR child
   lists in post-order (ids < S leaves, S+u internal node u, root last); unary nodes
   are collapsed. No WAIC for the DTMM yet.
+  `n_clades` (with `tree=None`) cuts the correlation dendrogram into a two-level tree
+  (`Tree.from_correlation(n_clades=)` → `Tree.from_clusters`); `n_bootstrap` refits on
+  bootstrap resamples (data-built tree rebuilt per resample), matches components to the
+  main fit (Hungarian on argmax overlap) and averages the assignment probabilities
+  (`bootstrap_`, `result_.group_assignments_single`; NLE/BIC/parameters stay those of
+  the main fit). Both opt-in; evidence and rejected alternatives in
+  `docs/dtmm_comparison.md` ("Stability on real data").
 - **C Extension**:
   - `src/pydmm/wrapper.c`: Python C API wrapper exposing `pydmm_core.dirichlet_fit`
     and `pydmm_core.dirichlet_tree_fit` (validates the tree before fitting)
@@ -141,7 +148,7 @@ validation/waic/.venv-prodiphy/bin/python validation/waic/make_fixtures.py   # t
 
 ## Key Design Patterns
 
-1. **Scikit-learn API**: `fit()`, `predict_proba()`, `fit_predict()`; constructor params are stored unchanged (`n_components`, `verbose`, `random_state`, `compute_waic`, `n_waic_draws`, `temperature`, `restart_collapsed`)
+1. **Scikit-learn API**: `fit()`, `predict_proba()`, `fit_predict()`; constructor params are stored unchanged (`n_components`, `verbose`, `random_state`, `compute_waic`, `n_waic_draws`, `temperature`, `restart_collapsed`; DTMM adds `tree`, `node_selection`, `n_clades`, `n_bootstrap`)
 2. **Pandas Integration**: DataFrames preserve sample/feature names through the pipeline
 3. **Opt-in extras**: WAIC (and the Hessian export it needs) only run when `compute_waic=True`, and tempering only when `temperature` is set, so the default fit path stays as fast as before and its output bit-identical. New output-changing methods must follow the same pattern (off by default)
 4. **Result Object Pattern**: `DirichletMixtureResult` gives structured access to all outputs

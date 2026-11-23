@@ -24,6 +24,10 @@ where it does not, and what it costs in runtime. All numbers come from
   correlated modules, and on wide trees where only a few of many clades differ,
   the DTMM clustered worse than the DMM, although BIC preferred it. On plain DMM
   data it is as good as the DMM, and BIC then prefers the DMM.
+* **On real data use `n_clades` and `n_bootstrap`.** The default binary data
+  tree gave clusters that changed between data subsets (78–85% agreement against
+  92% for the DMM). A shallow 150-clade tree was as reproducible as the DMM, and
+  bagging made the probabilities realistic. See "Stability on real data".
 * **Runtime**: about 1.5× a DMM fit with a taxonomy-like tree and about 2.7×
   with the default data-built binary tree (range 1.1–3.7× over N, S and K).
 
@@ -213,6 +217,81 @@ tempering (0.281). A taxonomy or phylogeny, when available, should be preferred.
 too confident, the DMM with `temperature="auto"` gets close to the DTMM
 (log-loss 0.426 vs 0.410 at θ = 10) at the DMM's cost. The DTMM's advantages are
 the fixed wrong splits, the differential nodes and the better density fit.
+
+## Stability on real data: clade trees and bagging
+
+*Added 23 Nov 2026.* The synthetic comparison above does not test whether the
+clusters are reproducible. On a real gut microbiome cohort (3005 samples, 400
+genera, rarefied to 10,000 reads, K = 4; the data are not part of this repository)
+the default DTMM was much less stable than the DMM, and its probabilities were
+too confident.
+
+**Protocol.** Every model was fitted to two disjoint halves of the samples (5
+random splits) and to two disjoint thirds, evaluated on the remaining third
+(5 splits). Clusters of the two fits were matched (Hungarian) and compared on
+the evaluated samples:
+*agreement* (share of samples with the same matched cluster), the lowest
+Jaccard index of a matched cluster pair, and *flip ECE*: the expected
+calibration error of each fit's maximum probability as a forecast of whether
+the other fit puts the sample in the same cluster. Realistic probabilities give
+a low flip ECE. Synthetic data with the cohort's properties (logistic-normal
+with the cohort's CLR means and covariances, its zero patterns and depth, 4
+replicates at full and half the observed separation) checked accuracy and ECE
+against the truth.
+
+| model (K = 4) | agreement split / held-out | lowest Jaccard | flip ECE (untempered) | flip ECE (one-step) |
+|---|---|---|---|---|
+| DMM | 0.918 / 0.918 | 0.81 / 0.81 | 0.053 / 0.052 | 0.047 / 0.056 |
+| DTMM, default binary data tree | 0.849 / 0.784 | 0.69 / 0.57 | 0.110 / 0.168 | 0.043 / 0.081 |
+| DTMM, `n_clades=150` | 0.908 / 0.909 | 0.79 / 0.77 | 0.061 / 0.057 | 0.043 / 0.047 |
+| DTMM, `n_clades=150, n_bootstrap=8` | 0.905 / 0.912 | 0.80 / 0.79 | 0.038 / 0.030 | 0.052 / 0.067 |
+| DMM, bagged (8, prototype) | 0.921 / 0.920 | 0.82 / 0.82 | 0.025 / 0.028 | 0.059 / 0.066 |
+
+On the synthetic data all of these reached accuracy 0.92 (0.79 at half
+separation). The bagged clade DTMM had ECE 0.066 untempered and 0.042 one-step,
+against 0.066 and 0.037 for the DMM; at half separation it had 0.137 and 0.080,
+against 0.167 and 0.101.
+
+**What worked.**
+
+* **A shallow clade tree** (`n_clades`): cut the correlation dendrogram into
+  about one clade per 2–3 features. 10–50 clades did not help (agreement
+  0.83–0.88), 100 gave 0.885/0.900, and 150 reached the DMM's stability. With 200
+  or more clades only the root stayed specific, so the model became the DMM. With
+  150, 6–7 clade nodes stay specific to the clusters (`differential_nodes()`).
+  The fit agreed with the DMM on 96% of samples.
+* **Bagging** (`n_bootstrap`): average the assignment probabilities over the fit
+  and its bootstrap refits. Single fits, DMM or DTMM, give ~87% of samples a
+  probability ≥ 0.95, but only 96% of those keep their cluster in another fit.
+  After bagging, 72–78% get ≥ 0.95 and 98–99% of them keep it. Untempered bagged
+  probabilities were the most realistic of everything tried. Tempering bagged
+  probabilities makes them under-confident, so use `temperature=None` with
+  `n_bootstrap`.
+* Bagging works just as well for the DMM (last row, a prototype outside the
+  package). The DTMM's remaining advantages are the differential clades and the
+  better density fit, not better probabilities than a bagged DMM.
+
+**What did not work** (prototyped in the C core, not merged; agreement
+split-half / held-out against 0.849 / 0.784 for the default):
+
+* Starting EM from the DMM's assignments: 0.850 / 0.772. Seeds and starts were
+  not the problem: different starts converged to the same fit.
+* A stronger node-selection penalty (×2: 0.829 / 0.763) or no selection
+  (0.846 / 0.811).
+* Shrinking each component's node parameters to the pooled fit (Gaussian prior on
+  log α; precision 10: 0.827 / 0.793).
+* One shared precision per node across components: 0.777 / 0.678.
+* Sharing nodes with few expected reads (minimum node count 5 or 20): no change.
+* More training data: in learning curves with n = 300–1200 the DTMM's stability
+  did not catch up with the DMM's. A fixed tree built from all samples, or K = 5,
+  did not help either.
+
+The instability comes from the many parameters of a deep binary tree, each
+with its own dispersion: a refit on other samples finds a different set of nodes
+that separate the clusters. A shallow tree has far fewer nodes, and bagging turns
+the remaining refit variation into probability instead of hiding it.
+
+**Cost.** `n_bootstrap=B` costs B extra fits.
 
 ## Runtime
 
