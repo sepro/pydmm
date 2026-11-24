@@ -39,6 +39,16 @@ A Rust port exists on the `rust` branch but was slower than the C core; `main` s
   `Tree.from_correlation` (average linkage on 1 − corr(CLR)). `Tree` stores CSR child
   lists in post-order (ids < S leaves, S+u internal node u, root last); unary nodes
   are collapsed. No WAIC for the DTMM yet.
+  `n_clades` (with `tree=None`) cuts the correlation dendrogram into a two-level tree
+  (`Tree.from_correlation(n_clades=)` → `Tree.from_clusters`). Opt-in; evidence and
+  rejected alternatives in `docs/dtmm_comparison.md` ("Stability on real data").
+- **Bagging** (`n_bootstrap`, both models, implemented once in `core.py`): refits on
+  bootstrap resamples, matches components to the main fit (Hungarian on argmax
+  overlap) and averages the assignment probabilities (`bootstrap_`,
+  `result_.group_assignments_single`; NLE/BIC/WAIC/parameters stay those of the main
+  fit; refits skip WAIC). Model hooks: `_component_log_lik`, `_bootstrap_params`,
+  `_bootstrap_extra` (the DTMM rebuilds a data-built tree per resample and stores it).
+  Runtime ≥ (B+1)× (DTMM up to ~2(B+1)×). Validation: `validation/bagging/compare.py`.
 - **C Extension**:
   - `src/pydmm/wrapper.c`: Python C API wrapper exposing `pydmm_core.dirichlet_fit`
     and `pydmm_core.dirichlet_tree_fit` (validates the tree before fitting)
@@ -96,6 +106,12 @@ venv/bin/python validation/correlation/experiment.py    # over-confidence vs cor
 venv/bin/python validation/correlation/tempered_em.py   # tempered assignments vs tempered EM (needs the patch in that dir)
 ```
 
+### Bagging (`validation/bagging/`)
+```bash
+OMP_NUM_THREADS=1 venv/bin/python validation/bagging/compare.py quality   # a few minutes on 16 cores
+OMP_NUM_THREADS=1 venv/bin/python validation/bagging/compare.py runtime   # sequential, run alone (~1.5 h)
+```
+
 ### Dirichlet-tree mixture (`validation/dtmm/`)
 ```bash
 OMP_NUM_THREADS=1 venv/bin/python validation/dtmm/compare.py     # DMM vs DTMM on synthetic data
@@ -131,6 +147,7 @@ validation/waic/.venv-prodiphy/bin/python validation/waic/make_fixtures.py   # t
 - **`test_model_selection.py`**: BIC/AIC model selection, overclustering detection
 - **`test_sklearn_compatibility.py`**: scikit-learn API conformance
 - **`test_dtmm.py`**: `Tree` builders, C tree fit (star == DMM, NLE vs Python likelihood, invalid trees), node selection, `DirichletTreeMixture` API and sklearn compatibility
+- **`test_bagging.py`**: `n_bootstrap` for the DMM (default unchanged, averaging, alignment, new data, labels, WAIC/temperature, validation); DTMM bagging is in `test_dtmm.py`
 - **`test_calibration.py`**: tempered assignments, `temperature="auto"` estimator, default path unchanged
 - **`test_bug_fixes.py`**: regression tests for bugs 1–4 of the former `BUGS.md`
   (removed when all bugs were closed; see git history); two tests
@@ -141,7 +158,7 @@ validation/waic/.venv-prodiphy/bin/python validation/waic/make_fixtures.py   # t
 
 ## Key Design Patterns
 
-1. **Scikit-learn API**: `fit()`, `predict_proba()`, `fit_predict()`; constructor params are stored unchanged (`n_components`, `verbose`, `random_state`, `compute_waic`, `n_waic_draws`, `temperature`, `restart_collapsed`)
+1. **Scikit-learn API**: `fit()`, `predict_proba()`, `fit_predict()`; constructor params are stored unchanged (`n_components`, `verbose`, `random_state`, `compute_waic`, `n_waic_draws`, `temperature`, `restart_collapsed`, `n_bootstrap`; DTMM adds `tree`, `node_selection`, `n_clades`)
 2. **Pandas Integration**: DataFrames preserve sample/feature names through the pipeline
 3. **Opt-in extras**: WAIC (and the Hessian export it needs) only run when `compute_waic=True`, and tempering only when `temperature` is set, so the default fit path stays as fast as before and its output bit-identical. New output-changing methods must follow the same pattern (off by default)
 4. **Result Object Pattern**: `DirichletMixtureResult` gives structured access to all outputs

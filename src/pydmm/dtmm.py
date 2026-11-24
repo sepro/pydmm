@@ -26,7 +26,7 @@ from scipy.special import gammaln
 
 from .calibration import (resolve_temperature, tempered_responsibilities,
                           validate_temperature)
-from .core import DirichletMixture, DirichletMixtureResult
+from .core import DirichletMixture, DirichletMixtureResult, validate_n_bootstrap
 from .tree import Tree
 
 try:
@@ -142,6 +142,22 @@ class DirichletTreeMixture(DirichletMixture):
             "auto" is discouraged for the DTMM and gives a warning: on
             heavy-tailed data its iteration can drift to a tau near zero,
             and the probabilities become almost uniform. Use "one-step".
+        n_clades (int or None): Only with tree=None. None (default) builds the
+            full binary correlation tree; an integer cuts it into at most that
+            many clades, a two-level tree (``Tree.from_correlation(n_clades=)``).
+            On real gut microbiome data (400 genera, K=4) the binary tree gave
+            clusters that changed a lot between data subsets (78-85% of samples
+            kept their cluster); about one clade per 2-3 features (150 for 400)
+            was as reproducible as the DMM (91%), with a few clade nodes
+            specific to the clusters. Too few clades (10-50) did not help.
+        n_bootstrap (int): Refit on this many bootstrap resamples and average
+            the assignment probabilities over the fit and the refits (default:
+            0, off). The probabilities then include the uncertainty of the fit
+            itself: in the same data they were much closer to how often a
+            sample's cluster changes between fits than a single fit's, which
+            are overconfident. A tree built from the data is rebuilt on every
+            resample. Costs n_bootstrap extra fits; 8 is a reasonable choice.
+            See ``DirichletMixture`` and the README.
 
     Attributes:
         result_ (DirichletTreeMixtureResult): Fitting results (after fit)
@@ -149,14 +165,19 @@ class DirichletTreeMixture(DirichletMixture):
         classes_ (np.ndarray): Cluster labels (after fit)
         feature_names_in_ (np.ndarray): Feature names (after fit with a DataFrame)
         temperature_ (float or None): Tempering factor used (after fit)
+        bootstrap_ (list): One dict per bootstrap refit (estimates, weights,
+            tree, tau, order: refit component matched to each component)
     """
 
     def __init__(self, n_components: int = 2, tree: Optional[Tree] = None,
                  node_selection: bool = True, verbose: bool = False,
-                 random_state: int = 42, temperature=None):
+                 random_state: int = 42, temperature=None,
+                 n_clades: Optional[int] = None, n_bootstrap: int = 0):
         self.n_components = n_components
         self.tree = tree
         self.node_selection = node_selection
+        self.n_clades = n_clades
+        self.n_bootstrap = n_bootstrap
         self.verbose = verbose
         self.random_state = random_state
         self.temperature = temperature
@@ -166,9 +187,12 @@ class DirichletTreeMixture(DirichletMixture):
     def _resolve_tree(self, X_array: np.ndarray, feature_names: Optional[list]) -> Tree:
         n_features = X_array.shape[1]
         if self.tree is None:
-            return Tree.from_correlation(X_array, leaf_names=feature_names)
+            return Tree.from_correlation(X_array, leaf_names=feature_names,
+                                         n_clades=self.n_clades)
         if not isinstance(self.tree, Tree):
             raise ValueError("tree must be a pydmm.Tree or None")
+        if self.n_clades is not None:
+            raise ValueError("n_clades only applies when the tree is built from the data (tree=None)")
         if feature_names is not None and self.tree.leaf_names is not None:
             return self.tree.reorder(feature_names)
         if self.tree.n_leaves != n_features:
@@ -190,6 +214,7 @@ class DirichletTreeMixture(DirichletMixture):
         X_array, sample_names, feature_names = self._validate_input(X)
         X_array = np.ascontiguousarray(X_array)
         validate_temperature(self.temperature)
+        validate_n_bootstrap(self.n_bootstrap)
         if isinstance(self.temperature, str) and self.temperature == "auto":
             warnings.warn(
                 'temperature="auto" is discouraged for DirichletTreeMixture: on '
@@ -222,6 +247,8 @@ class DirichletTreeMixture(DirichletMixture):
         if self.temperature is not None:
             self._apply_temperature(X_array)
 
+        self._fit_bootstrap(X_array)
+
         self.is_fitted = True
         self.classes_ = np.arange(self.n_components)
         if feature_names is not None:
@@ -229,6 +256,19 @@ class DirichletTreeMixture(DirichletMixture):
         elif hasattr(self, 'feature_names_in_'):
             delattr(self, 'feature_names_in_')
         return self
+
+    def _component_log_lik(self, X_array, estimates, extra=None):
+        tree = self.tree_ if not extra or "tree" not in extra else extra["tree"]
+        return tree_component_log_likelihood(X_array, tree, estimates)
+
+    def _bootstrap_params(self):
+        # a data-built tree (tree=None) is rebuilt on every resample; a given one is reused
+        params = super()._bootstrap_params()
+        params["tree"] = None if self.tree is None else self.tree_
+        return params
+
+    def _bootstrap_extra(self, refit):
+        return {"tree": refit.tree_}
 
     def _apply_temperature(self, X_array: np.ndarray) -> None:
         """Replace group_assignments by tempered ones (temperature is not None)."""
@@ -264,10 +304,13 @@ class DirichletTreeMixture(DirichletMixture):
         if X_array.shape[1] != self.tree_.n_leaves:
             raise ValueError(f"X has {X_array.shape[1]} features, the model {self.tree_.n_leaves}")
 
-        log_lik = tree_component_log_likelihood(
-            X_array, self.tree_, self.result_.parameter_estimates["Estimate"])
-        tau = self.temperature_ if getattr(self, "temperature_", None) is not None else 1.0
-        responsibilities = tempered_responsibilities(log_lik, self.result_.mixture_weights, tau)
+        if self.bootstrap_:
+            responsibilities = self._bagged_responsibilities(X_array)
+        else:
+            log_lik = tree_component_log_likelihood(
+                X_array, self.tree_, self.result_.parameter_estimates["Estimate"])
+            tau = self.temperature_ if self.temperature_ is not None else 1.0
+            responsibilities = tempered_responsibilities(log_lik, self.result_.mixture_weights, tau)
 
         if self.result_.component_labels is not None:
             columns = [f"{self.result_.component_labels[i]} component"
