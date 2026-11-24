@@ -26,7 +26,7 @@ from scipy.special import gammaln
 
 from .calibration import (resolve_temperature, tempered_responsibilities,
                           validate_temperature)
-from .core import DirichletMixture, DirichletMixtureResult
+from .core import DirichletMixture, DirichletMixtureResult, validate_n_bootstrap
 from .tree import Tree
 
 try:
@@ -157,6 +157,7 @@ class DirichletTreeMixture(DirichletMixture):
             sample's cluster changes between fits than a single fit's, which
             are overconfident. A tree built from the data is rebuilt on every
             resample. Costs n_bootstrap extra fits; 8 is a reasonable choice.
+            See ``DirichletMixture`` and the README.
 
     Attributes:
         result_ (DirichletTreeMixtureResult): Fitting results (after fit)
@@ -213,6 +214,7 @@ class DirichletTreeMixture(DirichletMixture):
         X_array, sample_names, feature_names = self._validate_input(X)
         X_array = np.ascontiguousarray(X_array)
         validate_temperature(self.temperature)
+        validate_n_bootstrap(self.n_bootstrap)
         if isinstance(self.temperature, str) and self.temperature == "auto":
             warnings.warn(
                 'temperature="auto" is discouraged for DirichletTreeMixture: on '
@@ -245,9 +247,7 @@ class DirichletTreeMixture(DirichletMixture):
         if self.temperature is not None:
             self._apply_temperature(X_array)
 
-        self.bootstrap_ = []
-        if int(self.n_bootstrap) > 0:
-            self._fit_bootstrap(X_array)
+        self._fit_bootstrap(X_array)
 
         self.is_fitted = True
         self.classes_ = np.arange(self.n_components)
@@ -257,57 +257,18 @@ class DirichletTreeMixture(DirichletMixture):
             delattr(self, 'feature_names_in_')
         return self
 
-    def _single_responsibilities(self, X_array, estimates, weights, tau, tree=None):
-        log_lik = tree_component_log_likelihood(X_array, self.tree_ if tree is None else tree,
-                                                estimates)
-        return tempered_responsibilities(log_lik, weights, 1.0 if tau is None else tau)
+    def _component_log_lik(self, X_array, estimates, extra=None):
+        tree = self.tree_ if not extra or "tree" not in extra else extra["tree"]
+        return tree_component_log_likelihood(X_array, tree, estimates)
 
-    def _responsibilities(self, X_array: np.ndarray) -> np.ndarray:
-        """Assignment probabilities of the fit, averaged over the bootstrap refits if any."""
-        result = self.result_
-        p = self._single_responsibilities(X_array, result.parameter_estimates["Estimate"],
-                                          result.mixture_weights, getattr(self, "temperature_", None))
-        for boot in getattr(self, "bootstrap_", []):
-            q = self._single_responsibilities(X_array, boot["estimates"], boot["weights"],
-                                              boot["tau"], boot["tree"])
-            p = p + q[:, boot["order"]]
-        return p / (1 + len(getattr(self, "bootstrap_", [])))
+    def _bootstrap_params(self):
+        # a data-built tree (tree=None) is rebuilt on every resample; a given one is reused
+        params = super()._bootstrap_params()
+        params["tree"] = None if self.tree is None else self.tree_
+        return params
 
-    def _fit_bootstrap(self, X_array: np.ndarray) -> None:
-        """Refit on n_bootstrap resamples of the samples and average the assignment
-        probabilities. A tree built from the data (tree=None) is rebuilt on every resample; a
-        given tree is reused. Each refit's components are matched to the main fit's (Hungarian
-        on the overlap of most likely components over the training samples). The averaged
-        probabilities include the uncertainty from refitting, which a single fit's
-        probabilities leave out."""
-        from scipy.optimize import linear_sum_assignment
-
-        K, N = self.n_components, X_array.shape[0]
-        result = self.result_
-        main = self._single_responsibilities(X_array, result.parameter_estimates["Estimate"],
-                                             result.mixture_weights, self.temperature_)
-        ref = main.argmax(axis=1)
-        rng = np.random.default_rng(self.random_state)
-        params = self.get_params()
-        params.update(n_bootstrap=0, tree=None if self.tree is None else self.tree_)
-        total = main.copy()
-        for _ in range(int(self.n_bootstrap)):
-            idx = rng.integers(0, N, N)
-            refit = DirichletTreeMixture(**params).fit(X_array[idx])
-            estimates = refit.result_.parameter_estimates["Estimate"]
-            weights = refit.result_.mixture_weights
-            q = self._single_responsibilities(X_array, estimates, weights, refit.temperature_,
-                                              refit.tree_)
-            overlap = np.zeros((K, K))
-            np.add.at(overlap, (ref, q.argmax(axis=1)), 1)
-            rows, cols = linear_sum_assignment(-overlap)
-            order = np.empty(K, dtype=int)
-            order[rows] = cols  # main component k <- refit component order[k]
-            self.bootstrap_.append({"estimates": estimates, "weights": weights, "tree": refit.tree_,
-                                    "tau": refit.temperature_, "order": order})
-            total += q[:, order]
-        result.group_assignments_single = result.group_assignments
-        result.group_assignments = total / (1 + int(self.n_bootstrap))
+    def _bootstrap_extra(self, refit):
+        return {"tree": refit.tree_}
 
     def _apply_temperature(self, X_array: np.ndarray) -> None:
         """Replace group_assignments by tempered ones (temperature is not None)."""
@@ -343,7 +304,13 @@ class DirichletTreeMixture(DirichletMixture):
         if X_array.shape[1] != self.tree_.n_leaves:
             raise ValueError(f"X has {X_array.shape[1]} features, the model {self.tree_.n_leaves}")
 
-        responsibilities = self._responsibilities(X_array)
+        if self.bootstrap_:
+            responsibilities = self._bagged_responsibilities(X_array)
+        else:
+            log_lik = tree_component_log_likelihood(
+                X_array, self.tree_, self.result_.parameter_estimates["Estimate"])
+            tau = self.temperature_ if self.temperature_ is not None else 1.0
+            responsibilities = tempered_responsibilities(log_lik, self.result_.mixture_weights, tau)
 
         if self.result_.component_labels is not None:
             columns = [f"{self.result_.component_labels[i]} component"

@@ -43,6 +43,9 @@ class DirichletMixtureResult:
         group_assignments_untempered (np.ndarray or None): The usual EM
             responsibilities. Only set when tempering was applied, in which case
             ``group_assignments`` holds the tempered probabilities.
+        group_assignments_single (np.ndarray or None): With ``n_bootstrap``,
+            the single fit's assignments; ``group_assignments`` then holds the
+            average over the fit and its bootstrap refits.
     """
 
     def __init__(self, result_dict: Dict[str, Any], n_components: int,
@@ -62,6 +65,7 @@ class DirichletMixtureResult:
         self.pointwise_log_likelihood = None
         self.temperature = None
         self.group_assignments_untempered = None
+        self.group_assignments_single = None
 
     def set_component_labels(self, labels: Dict[int, str]) -> None:
         """
@@ -169,6 +173,12 @@ class DirichletMixtureResult:
         return out
 
 
+def validate_n_bootstrap(n_bootstrap) -> None:
+    if isinstance(n_bootstrap, bool) or not isinstance(n_bootstrap, (int, np.integer)) \
+            or n_bootstrap < 0:
+        raise ValueError("n_bootstrap must be a non-negative integer")
+
+
 class DirichletMixture(ClassifierMixin, BaseEstimator):
     """
     Dirichlet Mixture Model for compositional data analysis.
@@ -212,6 +222,21 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
             saddle point and every assignment probability is 1/K. The restart
             only runs for such collapsed fits, so other fits do not change.
             ``DirichletTreeMixture`` always does this restart.
+        n_bootstrap (int): Refit on this many bootstrap resamples of the
+            samples and average the assignment probabilities over the fit and
+            the refits (default: 0, off). A single fit's probabilities ignore
+            that a refit on other samples of the same population would move
+            some samples to another cluster; the averaged ones include it.
+            Each refit's components are matched to the fit's (Hungarian on the
+            overlap of the most likely components). Applies to
+            ``result_.group_assignments`` and ``predict_proba``; parameters,
+            NLE, BIC, AIC and WAIC stay those of the single fit, whose
+            probabilities are kept in ``result_.group_assignments_single``.
+            Costs n_bootstrap extra fits, so fitting takes at least
+            n_bootstrap + 1 times as long (up to about twice that for the DTMM). Gains are largest when single fits
+            are over-confident (small N, misspecified model); nothing is
+            gained on well-separated clusters. See the README and
+            ``validation/bagging/compare.py``.
 
     Attributes:
         n_components (int): Number of mixture components
@@ -223,12 +248,15 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
         feature_names_in_ (np.ndarray): Names of features seen during fit (available after fit with DataFrame)
         temperature_ (float or None): Tempering factor used (available after fit;
             None when ``temperature`` is None)
+        bootstrap_ (list): One dict per bootstrap refit (estimates, weights,
+            tau, order: the refit component matched to each component; the
+            DTMM adds its tree). Empty when ``n_bootstrap`` is 0.
     """
 
     def __init__(self, n_components: int = 2, verbose: bool = False,
                  random_state: int = 42, compute_waic: bool = False,
                  n_waic_draws: int = 1000, temperature=None,
-                 restart_collapsed: bool = False):
+                 restart_collapsed: bool = False, n_bootstrap: int = 0):
         self.n_components = n_components
         self.verbose = verbose
         self.random_state = random_state
@@ -236,6 +264,7 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
         self.n_waic_draws = n_waic_draws
         self.temperature = temperature
         self.restart_collapsed = restart_collapsed
+        self.n_bootstrap = n_bootstrap
         self.is_fitted = False
         self.result_ = None
 
@@ -338,6 +367,7 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
                                   or self.n_waic_draws < 2):
             raise ValueError("n_waic_draws must be an integer >= 2")
         validate_temperature(self.temperature)
+        validate_n_bootstrap(self.n_bootstrap)
 
         # Call the C extension
         result_dict = pydmm_core.dirichlet_fit(
@@ -379,6 +409,8 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
         if self.temperature is not None:
             self._apply_temperature(X_array)
 
+        self._fit_bootstrap(X_array)
+
         self.is_fitted = True
 
         # Set classes_ attribute for sklearn ClassifierMixin compatibility
@@ -405,6 +437,74 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
             log_lik, result.mixture_weights, tau)
         result.temperature = tau
         self.temperature_ = tau
+
+    # ------------------------------------------------------------ bagging
+
+    def _component_log_lik(self, X_array: np.ndarray, estimates: np.ndarray,
+                           extra: Optional[dict] = None) -> np.ndarray:
+        """Per-component log-likelihoods (N, K) for parameter estimates (S, K)."""
+        return component_log_likelihood(X_array, np.asarray(estimates).T)
+
+    def _bootstrap_params(self) -> Dict[str, Any]:
+        """Constructor parameters for the bootstrap refits."""
+        params = self.get_params()
+        params.update(n_bootstrap=0)
+        if "compute_waic" in params:
+            params["compute_waic"] = False
+        return params
+
+    def _bootstrap_extra(self, refit) -> dict:
+        """Model-specific state of a refit needed to evaluate it (the DTMM's tree)."""
+        return {}
+
+    def _single_responsibilities(self, X_array, estimates, weights, tau, extra=None):
+        log_lik = self._component_log_lik(X_array, estimates, extra)
+        return tempered_responsibilities(log_lik, weights, 1.0 if tau is None else tau)
+
+    def _bagged_responsibilities(self, X_array: np.ndarray) -> np.ndarray:
+        """Assignment probabilities averaged over the fit and its bootstrap refits."""
+        result = self.result_
+        p = self._single_responsibilities(X_array, result.parameter_estimates["Estimate"],
+                                          result.mixture_weights, self.temperature_)
+        for boot in self.bootstrap_:
+            q = self._single_responsibilities(X_array, boot["estimates"], boot["weights"],
+                                              boot["tau"], boot)
+            p = p + q[:, boot["order"]]
+        return p / (1 + len(self.bootstrap_))
+
+    def _fit_bootstrap(self, X_array: np.ndarray) -> None:
+        """Refit on n_bootstrap resamples and replace group_assignments by the average
+        over the fit and the refits (n_bootstrap > 0)."""
+        self.bootstrap_ = []
+        B = int(self.n_bootstrap)
+        if B == 0:
+            return
+        from scipy.optimize import linear_sum_assignment
+
+        K, N = self.n_components, X_array.shape[0]
+        result = self.result_
+        ref = self._single_responsibilities(
+            X_array, result.parameter_estimates["Estimate"], result.mixture_weights,
+            self.temperature_).argmax(axis=1)
+        rng = np.random.default_rng(self.random_state)
+        params = self._bootstrap_params()
+        for _ in range(B):
+            idx = rng.integers(0, N, N)
+            refit = type(self)(**params).fit(X_array[idx])
+            boot = {"estimates": refit.result_.parameter_estimates["Estimate"],
+                    "weights": refit.result_.mixture_weights,
+                    "tau": refit.temperature_, **self._bootstrap_extra(refit)}
+            q = self._single_responsibilities(X_array, boot["estimates"], boot["weights"],
+                                              boot["tau"], boot)
+            overlap = np.zeros((K, K))
+            np.add.at(overlap, (ref, q.argmax(axis=1)), 1)
+            rows, cols = linear_sum_assignment(-overlap)
+            order = np.empty(K, dtype=int)
+            order[rows] = cols  # component k <- refit component order[k]
+            boot["order"] = order
+            self.bootstrap_.append(boot)
+        result.group_assignments_single = result.group_assignments
+        result.group_assignments = self._bagged_responsibilities(X_array)
 
     def fit_predict(self, X: Union[np.ndarray, pd.DataFrame]) -> np.ndarray:
         """
@@ -435,6 +535,14 @@ class DirichletMixture(ClassifierMixin, BaseEstimator):
 
         X_array, _, _ = self._validate_input(X)
         X_array = np.ascontiguousarray(X_array)
+
+        if getattr(self, "bootstrap_", None):
+            responsibilities = self._bagged_responsibilities(X_array)
+            if self.result_.component_labels is not None:
+                columns = [f"{self.result_.component_labels[i]} component"
+                           for i in range(self.n_components)]
+                return pd.DataFrame(responsibilities, columns=columns)
+            return responsibilities
 
         # Get fitted parameters
         alpha_estimates = self.result_.parameter_estimates["Estimate"]  # shape: (n_features, n_components)

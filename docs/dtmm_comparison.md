@@ -245,7 +245,7 @@ against the truth.
 | DTMM, default binary data tree | 0.849 / 0.784 | 0.69 / 0.57 | 0.110 / 0.168 | 0.043 / 0.081 |
 | DTMM, `n_clades=150` | 0.908 / 0.909 | 0.79 / 0.77 | 0.061 / 0.057 | 0.043 / 0.047 |
 | DTMM, `n_clades=150, n_bootstrap=8` | 0.905 / 0.912 | 0.80 / 0.79 | 0.038 / 0.030 | 0.052 / 0.067 |
-| DMM, bagged (8, prototype) | 0.921 / 0.920 | 0.82 / 0.82 | 0.025 / 0.028 | 0.059 / 0.066 |
+| DMM, bagged (8) | 0.921 / 0.920 | 0.82 / 0.82 | 0.025 / 0.028 | 0.059 / 0.066 |
 
 On the synthetic data all of these reached accuracy 0.92 (0.79 at half
 separation). The bagged clade DTMM had ECE 0.066 untempered and 0.042 one-step,
@@ -264,11 +264,12 @@ against 0.167 and 0.101.
   and its bootstrap refits. Single fits, DMM or DTMM, give ~87% of samples a
   probability ≥ 0.95, but only 96% of those keep their cluster in another fit.
   After bagging, 72–78% get ≥ 0.95 and 98–99% of them keep it. Untempered bagged
-  probabilities were the most realistic of everything tried. Tempering bagged
-  probabilities makes them under-confident, so use `temperature=None` with
-  `n_bootstrap`.
-* Bagging works just as well for the DMM (last row, a prototype outside the
-  package). The DTMM's remaining advantages are the differential clades and the
+  probabilities were the most realistic of everything tried. On this cohort,
+  tempering the bagged probabilities made them under-confident (flip ECE
+  0.05–0.07). On misspecified simulated data, however, bagging plus one-step
+  tempering was best (`validation/bagging/compare.py`).
+* Bagging works just as well for the DMM (last row; now
+  `DirichletMixture(n_bootstrap=)`). The DTMM's remaining advantages are the differential clades and the
   better density fit, not better probabilities than a bagged DMM.
 
 **What did not work** (prototyped in the C core, not merged; agreement
